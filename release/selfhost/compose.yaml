@@ -1,0 +1,62 @@
+name: ${COMPOSE_PROJECT_NAME:?Run configure.mjs first}
+
+services:
+  postgres:
+    image: postgres:16.13-bookworm@sha256:472efd9a66f2b2f1a5aeb18b28de74332e6ef88c2b93a1a5d812fb6db67a5f60
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: archive
+      POSTGRES_USER: archive
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run configure.mjs first}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U archive -d archive"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app:
+    image: ${COMPOSE_PROJECT_NAME:?Run configure.mjs first}:local
+    build:
+      context: ../..
+      dockerfile: release/selfhost/Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    environment:
+      APP_ENV: production
+      BUSINESS_TEMPLATE: personal-archive
+      DEMO_MODE: "false"
+      PBX_AMI_ENABLED: "false"
+      DATABASE_URL: postgresql://archive:${POSTGRES_PASSWORD:?Run configure.mjs first}@postgres:5432/archive
+      DATABASE_SSL: disable
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run configure.mjs first}
+      MANUSCRIPT_RECOVERY_KEY: ${MANUSCRIPT_RECOVERY_KEY:?Run configure.mjs first}
+      PRIVATE_VAULT_RECOVERY_KEY: ${PRIVATE_VAULT_RECOVERY_KEY:?Run configure.mjs first}
+      S3_ENDPOINT: ${S3_ENDPOINT:?Set S3_ENDPOINT in .env}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?Set S3_ACCESS_KEY_ID in .env}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Set S3_SECRET_ACCESS_KEY in .env}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      DOCUMENT_BUCKET_NAME: ${DOCUMENT_BUCKET_NAME:?Set DOCUMENT_BUCKET_NAME in .env}
+      BACKUP_BUCKET_NAME: ${BACKUP_BUCKET_NAME:?Set BACKUP_BUCKET_NAME in .env}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-250}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/readyz', {signal: AbortSignal.timeout(6000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  postgres-data:

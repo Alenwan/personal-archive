@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-server
+deploy/personal-archive/prebuilt/
+.wrangler
+.dev.vars
+.env
+.env.*
+!.env.example
+.DS_Store
+.tools
+release/selfhost/recovery-*/
+*.log
+docs/*.pdf
+docs/preview-test-files/

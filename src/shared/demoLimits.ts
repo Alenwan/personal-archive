@@ -1,0 +1,2 @@
+export const DEFAULT_MAX_UPLOAD_MB = 512;
+export const DEFAULT_DEMO_MAX_FILES_PER_CASE = 10;

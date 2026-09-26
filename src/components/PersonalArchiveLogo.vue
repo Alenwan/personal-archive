@@ -1,0 +1,9 @@
+<template>
+  <img
+    src="/brand/personal-archive-emblem.png"
+    alt=""
+    aria-hidden="true"
+    draggable="false"
+    decoding="async"
+  />
+</template>
