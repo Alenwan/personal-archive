@@ -14,7 +14,7 @@ Recorded on 2026-09-06 for the 0.1.0-alpha.0 source candidate. This is a bounded
 | Storage connection | HTTP within the isolated Docker network; no S3 port exposed to the host |
 | Browser check | Chrome through a localhost tunnel to the restored instance |
 
-Garage was an independent test service, not added to the installation Compose file or chosen as a bundled production backend. Its tested image digest was `sha256:866bd13ed2038ba7e7190e840482bc27234c4afaf77be8cfa439ae088c1e4690`.
+Garage was an independent test service for this 2026-09-06 run. A later optional bundled Garage Compose overlay and interactive installer were added; their separate 2026-09-26 check is recorded below. The earlier tested image digest was `sha256:866bd13ed2038ba7e7190e840482bc27234c4afaf77be8cfa439ae088c1e4690`.
 
 ## Passed
 
@@ -31,4 +31,12 @@ Garage was an independent test service, not added to the installation Compose fi
 
 Linux/amd64, other S3 providers, external HTTPS/proxy configurations, NAS-specific setups and production-data import were not exercised in this run. The browser pass covered login and reading, not every editor/upload interaction. Container restore used ordinary documents, a note and a chapter; encrypted Vault and encrypted-writing recovery retain their separate synthetic native-PostgreSQL regression coverage and were not repeated in this container run.
 
-An inventory of 88 runtime Debian packages and the locations of their copyright/license files was collected. That inventory is not a complete image license or vulnerability review. Project and asset licensing, publication review, and the public repository/security-reporting destination remain pending. No release image has been published.
+An inventory of 88 runtime Debian packages and the locations of their copyright/license files was collected. That inventory is not a complete image license or vulnerability review. The source repository was published later; no prebuilt release image has been published.
+
+## Combined one-host installer, 2026-09-26
+
+The new `install.sh` was run on a fresh, disposable Ubuntu 24.04 Linux/arm64 VM with Docker 29.1.3 and Compose 2.40.3. The test used a source copy without Git history, local dependencies or private configuration. The script generated a mode-0600 `.env`, built the app image, started PostgreSQL and the bundled Garage 2.3.0 service, created and granted access to both private buckets, applied all 54 migrations, prompted for a synthetic first administrator and reached `/readyz`. The synthetic administrator's login API returned HTTP 200.
+
+`accounts.sh create --role ReadOnly` created a second synthetic account with a hidden temporary password; `accounts.sh list` showed both accounts and their roles, and that account's login API returned HTTP 200. Re-running `install.sh` applied zero migrations, kept the existing accounts and reached readiness again. The native disposable-PostgreSQL suite separately passed the new account CLI's create, duplicate-rejection and reset-password checks, including temporary-password verification and active-session revocation.
+
+This run did not perform a full object upload, off-host backup/restore or upgrade using the combined installer. Those operations still need release-specific verification before making stronger recovery claims. Linux/amd64 and external HTTPS were not exercised.

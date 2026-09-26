@@ -24,13 +24,18 @@ These screenshots were taken from test-only or locked views. They do not show pr
 
 ![Locked private vault with no files displayed](screenshots/vault-locked.jpg)
 
-## Install the Alpha candidate
+## Install on one Linux host
 
-Follow the [source Docker installation guide](release/selfhost/README.md). You need Docker Compose and an existing S3-compatible service with two dedicated private buckets. Compose manages the application and PostgreSQL; it does not install an object-storage provider.
+With Docker Engine and Docker Compose v2.24+ installed, clone this repository and run:
 
-The short path is: generate a private configuration → set S3 access → build → run migrations → create the first administrator with a hidden password prompt → start the application and verify readiness. There is no default account or demo seed. The application binds to the host's loopback interface by default.
+```sh
+git clone https://github.com/Alenwan/personal-archive.git
+sh personal-archive/release/selfhost/install.sh
+```
 
-The installation candidate has passed a real Docker/Linux arm64 run with PostgreSQL 16.13 and Garage 2.3.0: login, upload/download, notes, writing, application restart and restoration into a second empty database and object store. A browser check verified restored text and chapter rendering. See the [validation record](release/selfhost/VALIDATION.md) for exact coverage and limits; other platforms, providers and external HTTPS setups remain untested.
+The interactive installer runs the app, PostgreSQL and private Garage object storage on one host. It creates the buckets, runs migrations and asks you to create the first administrator. There is **no default account or password**. The app binds to the host's loopback interface; access from other devices needs an HTTPS reverse proxy or SSH tunnel. See the [English installation and account guide](release/selfhost/README.md) or [中文安装说明](release/selfhost/README.zh-CN.md). An existing S3-compatible service can still be used through the manual path.
+
+The combined installer passed a fresh Docker/Linux arm64 run with PostgreSQL 16.13 and Garage 2.3.0: administrator login, account creation, readiness and safe repeat installation. An earlier manual candidate additionally passed upload/download, notes, writing, restart and restoration into a second empty instance. A full restore of the new combined path, other CPU platforms and external HTTPS setups remain untested. See the [validation record](release/selfhost/VALIDATION.md) for exact coverage.
 
 ## Development
 
@@ -52,7 +57,7 @@ The frontend defaults to Personal Archive. Other inherited templates require an 
 
 ## Known limits
 
-- Alpha targets a single administrator or a trusted household. Invitations, mail delivery, full member management and arbitrary folder ACLs are deferred.
+- Alpha targets a single administrator or a trusted household. The server-side account command can list, create and reset users; invitations, mail delivery, full in-app member management and arbitrary folder ACLs are deferred.
 - File references are retained conservatively. Encrypted writing or encrypted chapter history can suspend permanent file cleanup; trash and restore remain available.
 - Forgejo repository management is retired from the application. Existing snapshot objects are not deleted; preserve all objects when backing up or importing an old instance.
 - Some legacy platform modules remain in the source/schema for compatibility. They are not advertised as Personal Archive features.
@@ -72,6 +77,6 @@ For security issues, follow [the private-reporting guidance](SECURITY.md). Do no
 
 Personal Archive 是面向个人与家庭的自托管资料工具，集中保存档案、阅读笔记、知识条目和长篇文稿，并提供按账号隔离的 Vault。
 
-当前优先发布功能有限、能安装的 Alpha。Archive 支持图片适配/全屏浏览，以及按文件夹顺序批量播放音乐；Long writing 支持个人阅读书签。请从[源码安装指南](release/selfhost/README.md)开始：需要 Docker Compose 和两个专用 S3 私有桶，无默认账号，首管理员通过终端初始化。普通档案按实例共享读取，Vault 和加密长文的独立密码及恢复密钥需妥善保管。
+当前优先发布功能有限、能安装的 Alpha。Archive 支持图片适配/全屏浏览，以及按文件夹顺序批量播放音乐；Long writing 支持个人阅读书签。请从[中文单机安装说明](release/selfhost/README.zh-CN.md)或[英文完整指南](release/selfhost/README.md)开始：需要 Docker Compose，安装脚本会配置私有对象存储和首管理员；没有默认账号。普通档案按实例共享读取，Vault 和加密长文的独立密码及恢复密钥需妥善保管。
 
-邀请邮件、完整成员管理、复杂附件继承和更多安装平台以后再补。已有保守的数据保留限制继续生效。已完成 Linux/arm64 与 Garage S3 的首装、重启和空实例恢复主链路验证；其他平台及对象存储实现尚待验证，先用可替代的测试资料体验。源码和项目图标/截图依 [GNU AGPL v3 only](LICENSE) 开放，第三方组件保留各自许可。
+邀请邮件、完整界面成员管理、复杂附件继承和更多安装平台以后再补。已有保守的数据保留限制继续生效。新的单机脚本已在隔离 Linux/arm64 VM 完成首装、账号与重复运行验证；之前的手工安装另完成重启和空实例恢复验证，其他平台及组合安装的完整恢复仍待验证，先用可替代的测试资料体验。源码和项目图标/截图依 [GNU AGPL v3 only](LICENSE) 开放，第三方组件保留各自许可。

@@ -293,6 +293,49 @@ test("the maintenance CLI validates a password and atomically revokes existing s
   assert.equal((await repo.getUserById(userId))?.role, "Admin");
 });
 
+test("the account CLI creates a temporary-password user and resets credentials without echoing secrets", async () => {
+  const email = `household-${randomUUID()}@example.invalid`;
+  const firstPassword = `Synthetic household 7 ${randomUUID()}`;
+  const nextPassword = `Synthetic changed 8 ${randomUUID()}`;
+  const runCli = async (args: string[], password?: string) => {
+    const child = spawn(process.execPath, [join(root, "scripts", "manage-users.mjs"), ...args], {
+      cwd: root,
+      env: {
+        PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, NODE_ENV: "test",
+        BUSINESS_TEMPLATE: "personal-archive", DATABASE_URL: "postgres:///postgres", DATABASE_SSL: "false",
+        PGHOST: config.socketDir, PGPORT: String(config.port), PGUSER: config.username, PGPASSWORD: config.password
+      },
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    child.stdin.end(password ? `${password}\n` : "");
+    let output = "";
+    child.stdout.on("data", (chunk) => { output += chunk; });
+    child.stderr.on("data", (chunk) => { output += chunk; });
+    const code = await new Promise<number>((done, reject) => {
+      child.once("error", reject);
+      child.once("exit", (value) => done(value ?? 1));
+    });
+    assert.equal(output.includes(firstPassword) || output.includes(nextPassword), false);
+    return { code, output };
+  };
+  assert.equal((await runCli(["create", "--email", email, "--name", "Household member", "--password-stdin"], firstPassword)).code, 0);
+  const [user] = await sql`select user_id, role from users where email = ${email}`;
+  assert.equal(user.role, "Staff");
+  const first = await repo.getUserCredential(user.user_id);
+  assert.equal(first?.mustChangePassword, true);
+  assert.equal(await verifyPassword(firstPassword, first!), true);
+  const active = session(user.user_id);
+  await repo.createAuthSession(active, first!.passwordHash);
+  assert.equal((await repo.getUserBySessionTokenHash(active.tokenHash))?.userId, user.user_id);
+  assert.equal((await runCli(["create", "--email", email, "--name", "Duplicate", "--password-stdin"], nextPassword)).code, 1);
+  assert.equal((await runCli(["reset-password", "--email", email, "--password-stdin"], nextPassword)).code, 0);
+  const reset = await repo.getUserCredential(user.user_id);
+  assert.equal(reset?.mustChangePassword, true);
+  assert.equal(await verifyPassword(firstPassword, reset!), false);
+  assert.equal(await verifyPassword(nextPassword, reset!), true);
+  assert.equal(await repo.getUserBySessionTokenHash(active.tokenHash), null);
+});
+
 test("independent Archive, global Reading & Notes and Knowledge enter real SQL backup snapshots without cases", async () => {
   const { userId } = await userFixture();
   const category = await repo.createArchiveCategory({ categoryId: randomUUID(), name: "合成家庭资料", createdBy: userId });

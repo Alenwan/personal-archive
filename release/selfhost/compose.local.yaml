@@ -1,0 +1,27 @@
+# One-host option. Keep the base compose.yaml for an existing external S3 service.
+services:
+  garage:
+    image: dxflrs/garage:v2.3.0
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
+    restart: unless-stopped
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?Run configure.mjs --bundled first}
+      GARAGE_DEFAULT_ACCESS_KEY: ${S3_ACCESS_KEY_ID:?Run configure.mjs --bundled first}
+      GARAGE_DEFAULT_SECRET_KEY: ${S3_SECRET_ACCESS_KEY:?Run configure.mjs --bundled first}
+      GARAGE_DEFAULT_BUCKET: ${DOCUMENT_BUCKET_NAME:?Run configure.mjs --bundled first}
+    volumes:
+      - garage-data:/var/lib/garage
+      - ./garage.toml:/etc/garage.toml:ro
+    healthcheck:
+      test: ["CMD", "/garage", "bucket", "info", "${DOCUMENT_BUCKET_NAME:?Run configure.mjs --bundled first}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    depends_on:
+      garage:
+        condition: service_healthy
+
+volumes:
+  garage-data:

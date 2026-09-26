@@ -7,7 +7,7 @@ COPY src ./src
 COPY functions ./functions
 COPY server ./server
 COPY migrations ./migrations
-COPY scripts/build-selfhost.mjs scripts/migrate.mjs scripts/init-admin.mjs scripts/set-user-password.mjs scripts/claim-manuscript-key-owner.mjs ./scripts/
+COPY scripts/build-selfhost.mjs scripts/migrate.mjs scripts/init-admin.mjs scripts/manage-users.mjs scripts/set-user-password.mjs scripts/claim-manuscript-key-owner.mjs ./scripts/
 COPY scripts/bundleNotices.mjs scripts/bundleNotices.d.mts ./scripts/
 COPY release/licenses ./release/licenses
 COPY public ./public

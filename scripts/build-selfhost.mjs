@@ -9,6 +9,7 @@ const result = await esbuild.build({
     selfhost: "server/selfhost.ts",
     migrate: "scripts/migrate.mjs",
     "init-admin": "scripts/init-admin.mjs",
+    "manage-users": "scripts/manage-users.mjs",
     "set-user-password": "scripts/set-user-password.mjs",
     "claim-manuscript-key-owner": "scripts/claim-manuscript-key-owner.mjs"
   },

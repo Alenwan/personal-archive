@@ -19,6 +19,7 @@
 !release/licenses/postgres-3.4.9.UNLICENSE
 !scripts/migrate.mjs
 !scripts/init-admin.mjs
+!scripts/manage-users.mjs
 !scripts/set-user-password.mjs
 !scripts/claim-manuscript-key-owner.mjs
 !public/
