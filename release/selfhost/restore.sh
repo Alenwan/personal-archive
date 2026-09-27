@@ -84,6 +84,14 @@ printf 'Restoring into new Compose project %s...\n' "$project"
 pa_dc up -d postgres
 postgres_id=$(pa_dc ps -q postgres)
 [ -n "$postgres_id" ] || pa_die "PostgreSQL did not start."
+ready=0
+attempt=0
+while [ "$attempt" -lt 60 ]; do
+  if pa_dc exec -T postgres pg_isready -U archive -d archive >/dev/null 2>&1; then ready=1; break; fi
+  attempt=$((attempt + 1))
+  sleep 2
+done
+[ "$ready" -eq 1 ] || pa_die "PostgreSQL did not become ready."
 postgres_image=$(docker inspect -f '{{.Image}}' "$postgres_id")
 garage_volume="${project}_garage-data"
 if ! docker volume inspect "$garage_volume" >/dev/null 2>&1; then

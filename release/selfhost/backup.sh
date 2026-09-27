@@ -105,4 +105,8 @@ fi
 ln "$partial" "$out" || pa_die "Output appeared during backup; refusing to overwrite it."
 rm -f "$partial"
 printf 'Encrypted backup: %s\n' "$out"
-printf '%s\n' "Keep the passphrase separately, run verify-backup.sh, and move a copy off this host."
+if [ -n "$recipient" ]; then
+  printf '%s\n' "Keep the private age identity off this host, run verify-backup.sh, and move a copy of the archive off this host."
+else
+  printf '%s\n' "Keep the passphrase separately, run verify-backup.sh, and move a copy off this host."
+fi
