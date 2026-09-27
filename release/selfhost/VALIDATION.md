@@ -40,3 +40,7 @@ The new `install.sh` was run on a fresh, disposable Ubuntu 24.04 Linux/arm64 VM 
 `accounts.sh create --role ReadOnly` created a second synthetic account with a hidden temporary password; `accounts.sh list` showed both accounts and their roles, and that account's login API returned HTTP 200. Re-running `install.sh` applied zero migrations, kept the existing accounts and reached readiness again. The native disposable-PostgreSQL suite separately passed the new account CLI's create, duplicate-rejection and reset-password checks, including temporary-password verification and active-session revocation.
 
 This run did not perform a full object upload, off-host backup/restore or upgrade using the combined installer. Those operations still need release-specific verification before making stronger recovery claims. Linux/amd64 and external HTTPS were not exercised.
+
+## Bundled recovery commands
+
+The encrypted backup, verification and empty-instance restore commands now have a disposable Docker integration exercise in `test-recovery.sh`. It creates synthetic accounts, a document, a note, a manuscript chapter and an in-app backup object; then it restores into a second Compose project and compares downloaded content. The exercise also checks that a populated checkout and a truncated archive are refused. This record will be updated with the actual runner and result after the workflow completes. Until then, the command syntax and application builds are the only completed local checks, not evidence of a successful end-to-end restore.

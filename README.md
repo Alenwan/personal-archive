@@ -61,7 +61,7 @@ The frontend defaults to Personal Archive. Other inherited templates require an 
 - File references are retained conservatively. Encrypted writing or encrypted chapter history can suspend permanent file cleanup; trash and restore remain available.
 - Forgejo repository management is retired from the application. Existing snapshot objects are not deleted; preserve all objects when backing up or importing an old instance.
 - Some legacy platform modules remain in the source/schema for compatibility. They are not advertised as Personal Archive features.
-- The in-app backup page is not a complete disaster-recovery solution. Preserve a consistent PostgreSQL dump, both object buckets, recovery configuration/keys, and the matching application version. See the installation guide before upgrades or important use.
+- The in-app backup page is not a complete disaster-recovery solution. The bundled one-host installation has encrypted backup, verification and empty-instance recovery commands; keep an off-host copy and rehearse recovery. External S3 and the separate production MinIO layout require their own procedures. See the installation guide before upgrades or important use.
 
 ## Licensing and feedback
 
