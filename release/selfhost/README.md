@@ -45,7 +45,7 @@ Ordinary Archive files, notes and unencrypted writing are shared within an insta
 
 PostgreSQL and Garage use separate named Docker volumes; `.env` contains the database password, object-store access key and three application recovery keys. The random Compose project name in `.env` identifies the volumes. Do not replace `.env`, delete the volumes, use `docker compose down --volumes`, or run the installer against an old instance's data.
 
-The in-app backup screen is not a full disaster-recovery backup. A database-only dump does not contain uploaded file bytes. The commands below capture PostgreSQL, the complete stopped Garage data volume (including both buckets and its metadata), `.env`, the matching source version and checksums. Keep the encrypted result off the server and test restoration regularly. A complete restore of these new commands is still being validated; see the [validation record](VALIDATION.md) for the exact coverage.
+The in-app backup screen is not a full disaster-recovery backup. A database-only dump does not contain uploaded file bytes. The commands below capture PostgreSQL, the complete stopped Garage data volume (including both buckets and its metadata), `.env`, the matching source version and checksums. Keep the encrypted result off the server and test restoration regularly. These commands passed a synthetic empty-instance recovery on Ubuntu 24.04/amd64; see the [validation record](VALIDATION.md) for the exact coverage and limits.
 
 For updates, preserve the existing `.env` and volumes, back up and prove restore first, then rebuild, apply migrations and restart. New database schemas may not work with older code; returning to an old image alone is not a reliable rollback.
 
