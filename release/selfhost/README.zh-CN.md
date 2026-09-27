@@ -20,3 +20,18 @@ sh personal-archive/release/selfhost/accounts.sh reset-password --email person@e
 ```
 
 默认新用户角色为 `Staff`，可用 `--role ReadOnly` 创建只读账号。普通档案按实例共享，Private vault 按账号隔离。外部 S3、升级、备份和故障处理的完整说明以[英文安装指南](README.md)为准。
+
+默认单机安装可使用下面的加密备份与校验命令。先在 Linux 主机上安装 `age`；备份时应用会短暂暂停写入，命令会提示设置独立的备份密码。请把加密文件复制到另一台设备，并保管好密码。
+
+```sh
+sh personal-archive/release/selfhost/backup.sh --output /mnt/backups/personal-archive.age
+sh personal-archive/release/selfhost/verify-backup.sh /mnt/backups/personal-archive.age
+```
+
+恢复时，在全新的 Linux 主机上检出备份记录的源码提交，**先运行恢复命令，不要先运行安装脚本**：
+
+```sh
+sh release/selfhost/restore.sh --archive /mnt/backups/personal-archive.age
+```
+
+恢复脚本拒绝覆盖已有 `.env`、容器或数据卷。校验成功仍需登录并检查原文件、笔记和长文。详见[英文指南的备份与恢复章节](README.md#back-up-and-recover-the-bundled-installation)。

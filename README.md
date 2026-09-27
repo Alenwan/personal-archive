@@ -35,7 +35,7 @@ sh personal-archive/release/selfhost/install.sh
 
 The interactive installer runs the app, PostgreSQL and private Garage object storage on one host. It creates the buckets, runs migrations and asks you to create the first administrator. There is **no default account or password**. The app binds to the host's loopback interface; access from other devices needs an HTTPS reverse proxy or SSH tunnel. See the [English installation and account guide](release/selfhost/README.md) or [中文安装说明](release/selfhost/README.zh-CN.md). An existing S3-compatible service can still be used through the manual path.
 
-The combined installer passed a fresh Docker/Linux arm64 run with PostgreSQL 16.13 and Garage 2.3.0: administrator login, account creation, readiness and safe repeat installation. An earlier manual candidate additionally passed upload/download, notes, writing, restart and restoration into a second empty instance. A full restore of the new combined path, other CPU platforms and external HTTPS setups remain untested. See the [validation record](release/selfhost/VALIDATION.md) for exact coverage.
+The combined installer passed a fresh Docker/Linux arm64 run with PostgreSQL 16.13 and Garage 2.3.0: administrator login, account creation, readiness and safe repeat installation. The new recovery commands passed a synthetic backup and empty-instance restore on Ubuntu 24.04/amd64, including original file bytes, a note, a chapter and a backup-bucket manifest. External HTTPS, larger real-world archives and the separate production MinIO layout remain untested. See the [validation record](release/selfhost/VALIDATION.md) for exact coverage.
 
 ## Development
 
@@ -61,7 +61,7 @@ The frontend defaults to Personal Archive. Other inherited templates require an 
 - File references are retained conservatively. Encrypted writing or encrypted chapter history can suspend permanent file cleanup; trash and restore remain available.
 - Forgejo repository management is retired from the application. Existing snapshot objects are not deleted; preserve all objects when backing up or importing an old instance.
 - Some legacy platform modules remain in the source/schema for compatibility. They are not advertised as Personal Archive features.
-- The in-app backup page is not a complete disaster-recovery solution. Preserve a consistent PostgreSQL dump, both object buckets, recovery configuration/keys, and the matching application version. See the installation guide before upgrades or important use.
+- The in-app backup page is not a complete disaster-recovery solution. The bundled one-host installation has encrypted backup, verification and empty-instance recovery commands; keep an off-host copy and rehearse recovery. External S3 and the separate production MinIO layout require their own procedures. See the installation guide before upgrades or important use.
 
 ## Licensing and feedback
 
@@ -79,4 +79,4 @@ Personal Archive 是面向个人与家庭的自托管资料工具，集中保存
 
 当前优先发布功能有限、能安装的 Alpha。Archive 支持图片适配/全屏浏览，以及按文件夹顺序批量播放音乐；Long writing 支持个人阅读书签。请从[中文单机安装说明](release/selfhost/README.zh-CN.md)或[英文完整指南](release/selfhost/README.md)开始：需要 Docker Compose，安装脚本会配置私有对象存储和首管理员；没有默认账号。普通档案按实例共享读取，Vault 和加密长文的独立密码及恢复密钥需妥善保管。
 
-邀请邮件、完整界面成员管理、复杂附件继承和更多安装平台以后再补。已有保守的数据保留限制继续生效。新的单机脚本已在隔离 Linux/arm64 VM 完成首装、账号与重复运行验证；之前的手工安装另完成重启和空实例恢复验证，其他平台及组合安装的完整恢复仍待验证，先用可替代的测试资料体验。源码和项目图标/截图依 [GNU AGPL v3 only](LICENSE) 开放，第三方组件保留各自许可。
+邀请邮件、完整界面成员管理、复杂附件继承和更多安装平台以后再补。已有保守的数据保留限制继续生效。单机安装脚本已在隔离 Linux/arm64 VM 完成首装、账号与重复运行验证；新的加密备份与空实例恢复命令已在 Ubuntu 24.04/amd64 上通过合成数据演练。真实大容量资料和外部 HTTPS 仍需进一步验证。源码和项目图标/截图依 [GNU AGPL v3 only](LICENSE) 开放，第三方组件保留各自许可。

@@ -1,0 +1,30 @@
+name: Self-host recovery
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/selfhost-recovery.yml'
+      - 'release/selfhost/**'
+      - 'scripts/build-selfhost.mjs'
+      - 'scripts/migrate.mjs'
+      - 'src/server/**'
+      - 'migrations/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  restore-rehearsal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install archive encryption tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y age jq
+      - name: Restore synthetic files and records into an empty instance
+        env:
+          PA_RECOVERY_TEST_ALLOW: '1'
+        run: sh release/selfhost/test-recovery.sh
