@@ -502,6 +502,7 @@ export interface AppRepository {
   getUserByUsername(username: string): Promise<PublicUser | null>;
   getUserById(userId: string): Promise<PublicUser | null>;
   listUsers(): Promise<PublicUser[]>;
+  createArchiveUser(input: { username: string; name: string; role: "Staff" | "ReadOnly"; credential: UserCredential; actorUserId: string }): Promise<PublicUser | null>;
   getUserCredential(userId: string): Promise<UserCredential | null>;
   updateUserPassword(userId: string, credential: UserCredential, options?: UpdateUserPasswordOptions): Promise<PublicUser | null>;
   getDefaultTenantForUser(userId: string): Promise<string | null>;

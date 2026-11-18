@@ -58,6 +58,7 @@ import type {
   PaginationParams,
   PartyOrganization,
   PublicUser,
+  User,
   PrivateVaultPasswordMetadata,
   SearchCredentialMatch,
   SearchResult,
@@ -471,6 +472,16 @@ export class DemoRepository implements AppRepository {
 
   async listUsers(): Promise<PublicUser[]> {
     return this.users.filter((user) => user.email.toLowerCase() !== SYSTEM_AUDIT_USER_EMAIL).map(withoutCreatedAt);
+  }
+
+  async createArchiveUser(input: { username: string; name: string; role: "Staff" | "ReadOnly"; credential: UserCredential; actorUserId: string }): Promise<PublicUser | null> {
+    if (!this.users.some((user) => user.userId === input.actorUserId && user.role === "Admin")
+      || this.users.some((user) => user.username?.toLowerCase() === input.username.toLowerCase())) return null;
+    const user: User = { userId: crypto.randomUUID(), name: input.name, email: `${input.username}@accounts.invalid`,
+      username: input.username, role: input.role, createdAt: nowIso() };
+    this.users.push(user);
+    this.credentials.set(user.userId, input.credential);
+    return withoutCreatedAt(user);
   }
 
   async getUserCredential(userId: string): Promise<UserCredential | null> {

@@ -1,6 +1,6 @@
 # Install Personal Archive on one Linux host
 
-This Alpha installer runs the application, PostgreSQL and a private Garage S3 object store on one Linux host. It creates two private object buckets, applies database migrations and asks you to create the first administrator with a username. There is **no default username, password, demo account or public registration**.
+This Alpha installer runs the application, PostgreSQL and a private Garage S3 object store on one Linux host. It creates two private object buckets, applies database migrations and creates an initial administrator as **`admin` with temporary password `123456`**. First login requires a password change. There is no public registration.
 
 The bundled Garage configuration is a single node with no storage redundancy. Use replaceable test files first. Before keeping important files, arrange an off-host backup of PostgreSQL, both Garage buckets, `.env` and the matching source version. The [recovery commands](#back-up-and-recover-the-bundled-installation) cover this bundled configuration. The previous [external-S3 installation](#use-an-existing-s3-service) remains available.
 
@@ -8,7 +8,7 @@ The bundled Garage configuration is a single node with no storage redundancy. Us
 
 - Debian 12 or 13 with a fresh Docker setup for the Debian bootstrap, or Linux with Docker Engine and Docker Compose v2.24 or later for the standard installer.
 - Enough free disk space for the database, original files and backups. The default maximum upload is 250 MB per file.
-- An interactive terminal for the first administrator's hidden password prompt. The install script does not accept a password on the command line.
+- Access to the trusted LAN for an immediate first login and password change.
 - `age` on the Linux host for encrypted recovery archives; install it from your distribution before running the backup commands.
 
 ## Quick install
@@ -21,7 +21,7 @@ git clone https://github.com/Alenwan/personal-archive.git
 sudo sh personal-archive/release/selfhost/debian-install.sh
 ```
 
-This uses [Docker's official Debian package repository](https://docs.docker.com/engine/install/debian/) and installs `age` for backups. It does not remove existing container packages or change the firewall. Run the command in an interactive SSH or local terminal; the administrator password is prompted without echoing it. Rerunning it preserves the existing Personal Archive `.env`, volumes and accounts.
+This uses [Docker's official Debian package repository](https://docs.docker.com/engine/install/debian/) and installs `age` for backups. It does not remove existing container packages or change the firewall. Rerunning it preserves the existing Personal Archive `.env`, volumes and accounts.
 
 If Docker Engine and Compose are already available, clone the repository, then run the standard installer:
 
@@ -32,7 +32,7 @@ sh personal-archive/release/selfhost/install.sh
 
 If the Debian bootstrap was run with `sudo`, use `sudo` for later `accounts.sh`, `backup.sh`, `verify-backup.sh` and `restore.sh` commands on that host. Root owns the private `.env`; do not change its permissions to make commands run as another user.
 
-The installer generates a private `release/selfhost/.env` once, selects a private LAN IPv4 address for the application, builds the app, starts PostgreSQL and Garage, creates the two buckets, runs migrations, and asks for an administrator username, display name and password. It then checks `/readyz`. Re-running the command keeps the existing configuration, volumes and accounts; it does not rotate keys or reset passwords. If installation stops partway through, fix the reported cause and run it again.
+The installer generates a private `release/selfhost/.env` once, selects a private LAN IPv4 address for the application, builds the app, starts PostgreSQL and Garage, creates the two buckets, runs migrations, and creates `admin` only when no account exists. It then checks `/readyz`. Re-running the command keeps the existing configuration, volumes and accounts; it does not rotate keys or reset passwords. If installation stops partway through, fix the reported cause and run it again.
 
 On another device on the same LAN, open the URL printed by the installer, such as `http://192.168.3.48:8080`. The app binds to that one private host address; PostgreSQL and Garage have no published host ports. The installer refuses an address outside the 10/8, 172.16/12 or 192.168/16 private IPv4 ranges. If automatic address selection is wrong or your host has multiple networks, use `sudo sh personal-archive/release/selfhost/network.sh lan PRIVATE_IPV4` from the clone's parent directory. For an older loopback-only installation, `sudo sh personal-archive/release/selfhost/network.sh lan` selects the current private address and recreates only the app container. Use `network.sh local` to return to loopback access. These commands preserve the existing accounts, keys, database and stored files.
 
@@ -42,7 +42,7 @@ After signing in, upload and download a replaceable test file, save a note and a
 
 ## Accounts
 
-The first administrator is the username and password **you enter during installation**. A username is 3–32 characters: lowercase letters, digits, dots, underscores or hyphens, starting with a letter. No email address is required. No account is created from repository examples. The app currently has no invite-email or full in-app member-management flow; a server operator uses these commands from the cloned repository:
+On a fresh bundled installation, sign in as `admin` with temporary password `123456` and set a new password immediately. Until the change, the account cannot access workspace APIs. Anyone on the LAN who knows the published default could reach the first-login step, so do not leave a new installation unattended. A username is 3–32 characters: lowercase letters, digits, dots, underscores or hyphens, starting with a letter. No email address is required. Settings allows any signed-in user to change their own password and allows an administrator to add standard or read-only accounts. Server operators can also use these commands:
 
 ```sh
 sh personal-archive/release/selfhost/accounts.sh list

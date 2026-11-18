@@ -239,6 +239,8 @@ export const client = {
   myWork: (filters: MyWorkFilters = {}) =>
     api<MyWorkQueue>(`/my-work${toQuery(filters as Record<string, string | undefined>)}`),
   users: () => api<PublicUser[]>("/users"),
+  createArchiveUser: (body: { username: string; name: string; role: "Staff" | "ReadOnly"; password: string; currentPassword: string }) =>
+    api<{ user: PublicUser }>("/archive/users", { method: "POST", body: JSON.stringify(body) }),
   gmailExtensionTokens: () => api<GmailExtensionToken[]>("/integrations/gmail-extension/tokens"),
   createGmailExtensionToken: (body: { name: string; scopes?: GmailExtensionTokenScope[] }) =>
     api<GmailExtensionTokenCreateResult>("/integrations/gmail-extension/tokens", { method: "POST", body: JSON.stringify(body) }),

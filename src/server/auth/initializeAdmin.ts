@@ -6,7 +6,7 @@ import { internalAccountEmail, normalizeUsername, validUsername } from "./userna
 export class AdminInitializationError extends Error {}
 
 // Maintenance entry point, deliberately unavailable through the HTTP API.
-export async function initializeAdmin(sql: postgres.Sql, input: { email?: string; username?: string; name: string; password: string }, migrations: MigrationSignature[]): Promise<string> {
+export async function initializeAdmin(sql: postgres.Sql, input: { email?: string; username?: string; name: string; password: string; bootstrapDefault?: boolean }, migrations: MigrationSignature[]): Promise<string> {
   const username = input.username ? normalizeUsername(input.username) : null;
   if (username && !validUsername(username)) throw new AdminInitializationError("Username must be 3–32 lowercase letters, digits, dots, underscores or hyphens, starting with a letter.");
   const email = username ? internalAccountEmail(username) : (input.email ?? "").trim().toLowerCase();
@@ -18,9 +18,12 @@ export async function initializeAdmin(sql: postgres.Sql, input: { email?: string
     throw new AdminInitializationError("Provide a name of 1–100 characters without control characters.");
   }
   if (input.password.length > 1024 || /[\r\n\u0000]/.test(input.password)) throw new AdminInitializationError("Invalid password input.");
-  const invalid = validateNewPassword(input.password);
+  if (input.bootstrapDefault && (username !== "admin" || input.password !== "123456" || input.email)) {
+    throw new AdminInitializationError("The bootstrap account must be admin with its fixed first-login password.");
+  }
+  const invalid = input.bootstrapDefault ? null : validateNewPassword(input.password);
   if (invalid) throw new AdminInitializationError(invalid);
-  const credential = await hashPassword(input.password);
+  const credential = { ...await hashPassword(input.password), mustChangePassword: Boolean(input.bootstrapDefault) };
   return sql.begin(async (tx) => {
     await tx`set local lock_timeout = '5s'`;
     const [lock] = await tx`select pg_try_advisory_xact_lock_shared(${MIGRATION_LOCK[0]}, ${MIGRATION_LOCK[1]}) as locked`;
@@ -41,7 +44,7 @@ export async function initializeAdmin(sql: postgres.Sql, input: { email?: string
       user_id, password_hash, password_salt, password_algorithm, password_iterations,
       must_change_password, password_changed_at, failed_login_count, updated_at
     ) values (${user.user_id}, ${credential.passwordHash}, ${credential.passwordSalt},
-      ${credential.passwordAlgorithm}, ${credential.passwordIterations}, false, now(), 0, now())`;
+      ${credential.passwordAlgorithm}, ${credential.passwordIterations}, ${credential.mustChangePassword}, ${credential.mustChangePassword ? null : new Date().toISOString()}, 0, now())`;
     await tx`insert into audit_logs (action, entity_type, entity_id, user_id, metadata)
       values ('InitializeAdmin', 'User', ${user.user_id}, ${user.user_id}, '{"source":"init-admin-cli"}'::jsonb)`;
     return user.user_id as string;

@@ -69,6 +69,7 @@ import {
 } from "../../src/server/auth/demoAccess";
 import { buildCapabilities } from "../../src/server/auth/capabilities";
 import { hashPassword, validateNewPassword, verifyPassword } from "../../src/server/auth/password";
+import { normalizeUsername, validUsername } from "../../src/server/auth/username";
 import { can, requirePermission } from "../../src/server/auth/permissions";
 import { cleanupStoredDocuments } from "../../src/server/services/storageCleanup";
 import { requireManuscriptKeyOwner } from "../../src/server/auth/manuscriptPermissions";
@@ -1988,6 +1989,29 @@ app.get("/my-work", async (context) => {
 app.get("/users", async (context) => {
   requirePermission(context.get("user"), "view", "user");
   return context.json(await context.get("repo").listUsers());
+});
+
+app.post("/archive/users", async (context) => {
+  requirePersonalArchive(context.env);
+  const actor = context.get("user");
+  if (actor.role !== "Admin") throw new HTTPException(403, { message: "Administrator access required." });
+  const input = z.object({ username: z.string().trim(), name: z.string().trim().min(1).max(100),
+    role: z.enum(["Staff", "ReadOnly"]), password: z.string().min(1).max(1024),
+    currentPassword: z.string().min(1).max(1024) }).parse(await context.req.json());
+  const username = normalizeUsername(input.username);
+  if (!validUsername(username)) return context.json({ error: "Username must be 3–32 characters and start with a letter." }, 400);
+  const passwordError = validateNewPassword(input.password);
+  if (passwordError) return context.json({ error: passwordError }, 400);
+  const repo = context.get("repo");
+  const adminCredential = await repo.getUserCredential(actor.userId);
+  if (!adminCredential || !await verifyPassword(input.currentPassword, adminCredential)) {
+    return context.json({ error: "Your current password is incorrect." }, 403);
+  }
+  const credential = { ...await hashPassword(input.password), mustChangePassword: true };
+  const created = await repo.createArchiveUser({ username, name: input.name, role: input.role,
+    credential, actorUserId: actor.userId });
+  if (!created) return context.json({ error: "Username is already in use or administrator access changed." }, 409);
+  return context.json({ user: userResponse(created, context.env) }, 201);
 });
 
 app.get("/archive/storage-cleanup/status", async (context) => {

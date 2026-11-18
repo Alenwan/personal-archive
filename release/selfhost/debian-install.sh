@@ -1,11 +1,10 @@
 #!/bin/sh
-# Fresh Debian 12/13 host bootstrap. Run from an interactive root shell.
+# Fresh Debian 12/13 host bootstrap. Run as root.
 set -eu
 cd "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 die() { printf '%s\n' "$*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "Run as root: sudo sh release/selfhost/debian-install.sh"
-[ -t 0 ] && [ -t 2 ] || die "Run in an interactive terminal to create the first administrator."
 [ -r /etc/os-release ] || die "Cannot identify the operating system."
 . /etc/os-release
 [ "$ID" = debian ] || die "This bootstrap is for Debian 12 or 13 only."

@@ -8,7 +8,7 @@ git clone https://github.com/Alenwan/personal-archive.git
 sudo sh personal-archive/release/selfhost/debian-install.sh
 ```
 
-此入口使用 Docker 官方 Debian 软件源安装 Docker Engine、Compose 和备份用的 `age`，再启动应用安装。若服务器已安装冲突的容器软件包，脚本会停止并提示按 Docker 官方指南处理，不会替你卸载。需要交互式终端输入管理员密码。
+此入口使用 Docker 官方 Debian 软件源安装 Docker Engine、Compose 和备份用的 `age`，再启动应用安装。若服务器已安装冲突的容器软件包，脚本会停止并提示按 Docker 官方指南处理，不会替你卸载。
 
 如果 Linux 已有 Docker Engine 和 Docker Compose v2.24+，则使用标准入口：
 
@@ -17,11 +17,11 @@ git clone https://github.com/Alenwan/personal-archive.git
 sh personal-archive/release/selfhost/install.sh
 ```
 
-脚本会在同一台机器上配置应用、PostgreSQL 和 Garage 对象存储，生成只创建一次的私有 `.env`、两个私有桶并执行数据库迁移；随后交互式输入首个管理员用户名、名称和密码，不要求邮箱。用户名以小写字母开头，长 3–32 位，可包含小写字母、数字、点、下划线和连字符。**没有默认账号或默认密码。** 新安装会自动选择服务器的局域网 IPv4 地址；再次运行不会重置账号或密钥。
+脚本会在同一台机器上配置应用、PostgreSQL 和 Garage 对象存储，生成只创建一次的私有 `.env`、两个私有桶并执行数据库迁移；空实例自动创建初始管理员 **`admin`，临时密码 `123456`**，首次登录必须修改密码。改密前无法使用档案接口。这个初始密码公开，安装后请立即登录修改，避免同一局域网的其他人抢先登录。新安装会自动选择服务器的局域网 IPv4 地址；再次运行不会重置账号或密钥。
 
 安装后，在同一局域网的设备上打开安装器显示的地址，例如 `http://192.168.3.48:8080`。应用只绑定选中的私有 IP；PostgreSQL 和 Garage 不开放主机端口。已有的本机绑定安装可在克隆仓库的上级目录执行 `sudo sh personal-archive/release/selfhost/network.sh lan`，只重建应用容器即可开放局域网访问；多网卡时可在命令后指定私有 IPv4 地址，`network.sh local` 可切回仅本机访问。HTTP 不加密登录密码、Cookie 和文件传输，请只在可信局域网使用，并阻止公网访问 8080 端口；需要安全上下文的浏览器功能或跨不可信网络访问时应配置 HTTPS。单节点存储没有冗余，重要资料必须另做包含数据库、两个对象桶、`.env` 和源码版本的异机备份。
 
-在克隆仓库的上级目录执行以下账号命令；创建或重置时会隐藏密码输入，新用户首次登录须修改临时密码。若首次安装使用了 `sudo`，后续账号、备份、校验与恢复命令也应使用 `sudo`，不要修改私有 `.env` 的权限：
+Settings 可修改自己的密码；管理员还可添加普通或只读账号。也可在克隆仓库的上级目录执行以下账号命令；创建或重置时会隐藏密码输入，新用户首次登录须修改临时密码。若首次安装使用了 `sudo`，后续账号、备份、校验与恢复命令也应使用 `sudo`，不要修改私有 `.env` 的权限：
 
 ```sh
 sh personal-archive/release/selfhost/accounts.sh list

@@ -6,7 +6,6 @@ cd "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 die() { printf '%s\n' "$*" >&2; exit 1; }
 dc() { docker compose -f compose.yaml -f compose.local.yaml "$@"; }
 
-[ -t 0 ] && [ -t 2 ] || die "Run this installer from an interactive terminal (for the administrator password)."
 command -v docker >/dev/null 2>&1 || die "Install Docker Engine and Docker Compose first."
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required."
 docker info >/dev/null 2>&1 || die "Docker is not running or this account cannot access it."
@@ -54,16 +53,12 @@ set +e
 dc run --rm -T app node dist-server/manage-users.mjs has-users
 account_status=$?
 set -e
+new_admin=0
 case "$account_status" in
   0) printf 'An account already exists; keeping it unchanged.\n' ;;
   3)
-    printf 'First administrator username (for example, alen): ' >&2
-    IFS= read -r owner_username
-    [ -n "$owner_username" ] || die "Username is required."
-    printf 'Display name [Archive Owner]: ' >&2
-    IFS= read -r owner_name
-    owner_name=${owner_name:-Archive Owner}
-    dc run --rm app node dist-server/init-admin.mjs --username "$owner_username" --name "$owner_name"
+    dc run --rm -T app node dist-server/init-admin.mjs --bootstrap-default
+    new_admin=1
     ;;
   *) die "Could not inspect installed accounts. Nothing was reset." ;;
 esac
@@ -80,6 +75,10 @@ done
 app_port=$(sed -n "s/^APP_PORT='\([0-9][0-9]*\)'$/\1/p" .env)
 app_bind_address=$(sed -n "s/^APP_BIND_ADDRESS='\([0-9.]*\)'$/\1/p" .env)
 printf '\nPersonal Archive is ready at http://%s:%s.\n' "${app_bind_address:-127.0.0.1}" "${app_port:-8080}"
-printf 'There is no default login. Use the administrator username and password you entered.\n'
+if [ "$new_admin" -eq 1 ]; then
+  printf 'First install login: admin / 123456. Change this temporary password immediately.\n'
+else
+  printf 'Existing accounts and passwords were preserved.\n'
+fi
 printf 'To add household accounts later, run: sh release/selfhost/accounts.sh create --username person --name "Person"\n'
 printf 'Keep .env and both PostgreSQL/Garage volumes backed up together before storing important files.\n'

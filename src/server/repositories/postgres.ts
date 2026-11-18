@@ -1259,6 +1259,28 @@ export class PostgresRepository implements AppRepository {
     return rows.map((row) => mapUser(row as Row));
   }
 
+  async createArchiveUser(input: { username: string; name: string; role: "Staff" | "ReadOnly"; credential: UserCredential; actorUserId: string }): Promise<PublicUser | null> {
+    const userId = await this.sql.begin(async (tx) => {
+      await tx`set local lock_timeout = '5s'`;
+      await tx`lock table users, user_credentials in share row exclusive mode`;
+      const [actor] = await tx`select user_id from users where user_id = ${input.actorUserId} and role = 'Admin'`;
+      if (!actor) return null;
+      const [existing] = await tx`select user_id from users where lower(username) = ${input.username} limit 1`;
+      if (existing) return null;
+      const email = `${input.username}@accounts.invalid`;
+      const [created] = await tx`insert into users (name, email, username, role)
+        values (${input.name}, ${email}, ${input.username}, ${input.role}) returning user_id`;
+      await tx`insert into user_credentials (user_id, password_hash, password_salt, password_algorithm,
+        password_iterations, must_change_password, temporary_password_issued_at, failed_login_count, updated_at)
+        values (${created.user_id}, ${input.credential.passwordHash}, ${input.credential.passwordSalt},
+          ${input.credential.passwordAlgorithm}, ${input.credential.passwordIterations}, true, now(), 0, now())`;
+      await tx`insert into audit_logs (action, entity_type, entity_id, user_id, metadata)
+        values ('CreateUser', 'User', ${created.user_id}, ${input.actorUserId}, '{"source":"settings"}'::jsonb)`;
+      return created.user_id as string;
+    });
+    return userId ? this.getUserById(userId) : null;
+  }
+
   async getUserCredential(userId: string): Promise<UserCredential | null> {
     const rows = await this.sql`
       select password_hash, password_salt, password_algorithm, password_iterations, must_change_password

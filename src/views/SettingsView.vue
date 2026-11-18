@@ -8,7 +8,7 @@ import { useI18n } from "../i18n";
 import { formatDateTime } from "../shared/format";
 import { useAuthStore } from "../stores/auth";
 import { PERSONAL_UI_ACCENTS, PERSONAL_UI_PALETTES, PERSONAL_UI_STYLES, useUiPreferences } from "../uiPreferences";
-import type { AuditLog, CaseTypeTemplate, GmailExtensionToken, PbxSettings, PbxSettingsInput } from "../shared/types";
+import type { AuditLog, CaseTypeTemplate, GmailExtensionToken, PbxSettings, PbxSettingsInput, PublicUser } from "../shared/types";
 
 const { t } = useI18n();
 const { template, labels } = useBusinessTemplate();
@@ -30,6 +30,44 @@ const revokingGmailTokenId = ref("");
 const savingPbxSettings = ref(false);
 const visibleCaseTypes = computed(() => filterCaseTypeTemplates(template.value, caseTypes.value));
 const canEditSettings = computed(() => auth.canMutate && auth.user?.role === "Admin");
+const archiveUsers = ref<PublicUser[]>([]);
+const passwordForm = reactive({ current: "", next: "", confirm: "" });
+const passwordMessage = ref("");
+const passwordError = ref("");
+const savingPassword = ref(false);
+const accountForm = reactive({ username: "", name: "", role: "Staff" as "Staff" | "ReadOnly", password: "", currentPassword: "" });
+const accountMessage = ref("");
+const accountError = ref("");
+const creatingAccount = ref(false);
+
+async function saveOwnPassword() {
+  passwordMessage.value = "";
+  passwordError.value = "";
+  if (passwordForm.next !== passwordForm.confirm) { passwordError.value = "New passwords do not match."; return; }
+  savingPassword.value = true;
+  try {
+    await auth.changePassword(passwordForm.current, passwordForm.next, passwordForm.confirm);
+    Object.assign(passwordForm, { current: "", next: "", confirm: "" });
+    passwordMessage.value = "Password changed. Other sessions have been signed out.";
+  } catch (error) {
+    passwordError.value = error instanceof Error ? error.message : "Unable to change password.";
+  } finally { savingPassword.value = false; }
+}
+
+async function createArchiveAccount() {
+  if (!canEditSettings.value) return;
+  accountMessage.value = "";
+  accountError.value = "";
+  creatingAccount.value = true;
+  try {
+    const result = await client.createArchiveUser(accountForm);
+    archiveUsers.value = await client.users();
+    accountMessage.value = `Created ${result.user.username}. Give the temporary password privately; the new user must change it at first login.`;
+    Object.assign(accountForm, { username: "", name: "", role: "Staff", password: "", currentPassword: "" });
+  } catch (error) {
+    accountError.value = error instanceof Error ? error.message : "Unable to create account.";
+  } finally { creatingAccount.value = false; }
+}
 
 const pbxForm = reactive({
   isEnabled: false,
@@ -207,6 +245,7 @@ async function revokeGmailToken(token: GmailExtensionToken) {
 
 onMounted(async () => {
   if (template.value.personalArchive) {
+    if (canEditSettings.value) archiveUsers.value = await client.users().catch(() => []);
     try {
       auditLogs.value = await client.auditLogs();
     } catch (error) {
@@ -381,6 +420,33 @@ onMounted(async () => {
             <div class="flex justify-between gap-4 py-2.5"><dt class="text-ink-500">Role</dt><dd class="font-semibold">{{ auth.user?.role }}</dd></div>
           </dl>
         </div>
+
+        <form class="panel personal-settings-panel space-y-3 p-4" @submit.prevent="saveOwnPassword">
+          <h2 class="font-bold">Change your password</h2>
+          <input v-model="passwordForm.current" class="input w-full" type="password" autocomplete="current-password" placeholder="Current password" required />
+          <input v-model="passwordForm.next" class="input w-full" type="password" autocomplete="new-password" placeholder="New password (10+ characters, letters and digits)" required />
+          <input v-model="passwordForm.confirm" class="input w-full" type="password" autocomplete="new-password" placeholder="Confirm new password" required />
+          <p v-if="passwordError" class="text-sm text-red-700" role="alert">{{ passwordError }}</p>
+          <p v-if="passwordMessage" class="text-sm text-green-700" role="status">{{ passwordMessage }}</p>
+          <button class="btn-primary" type="submit" :disabled="savingPassword">{{ savingPassword ? "Saving..." : "Change password" }}</button>
+        </form>
+
+        <form v-if="canEditSettings" class="panel personal-settings-panel space-y-3 p-4" @submit.prevent="createArchiveAccount">
+          <h2 class="font-bold">Add an account</h2>
+          <p class="text-sm text-ink-500">The new user will change this temporary password at first login.</p>
+          <input v-model="accountForm.username" class="input w-full" autocomplete="off" placeholder="Username" required />
+          <input v-model="accountForm.name" class="input w-full" autocomplete="off" placeholder="Display name" required />
+          <select v-model="accountForm.role" class="input w-full" aria-label="Account role"><option value="Staff">Standard</option><option value="ReadOnly">Read only</option></select>
+          <input v-model="accountForm.password" class="input w-full" type="password" autocomplete="new-password" placeholder="Temporary password (10+ characters, letters and digits)" required />
+          <input v-model="accountForm.currentPassword" class="input w-full" type="password" autocomplete="current-password" placeholder="Your current admin password" required />
+          <p v-if="accountError" class="text-sm text-red-700" role="alert">{{ accountError }}</p>
+          <p v-if="accountMessage" class="text-sm text-green-700" role="status">{{ accountMessage }}</p>
+          <button class="btn-primary" type="submit" :disabled="creatingAccount">{{ creatingAccount ? "Creating..." : "Create account" }}</button>
+          <div v-if="archiveUsers.length" class="border-t border-ink-100 pt-3 text-sm">
+            <p class="mb-2 font-semibold">Accounts</p>
+            <p v-for="account in archiveUsers" :key="account.userId" class="py-1">{{ account.username || account.email }} · {{ account.role }}</p>
+          </div>
+        </form>
 
         <div class="panel personal-settings-panel p-4">
           <div class="mb-3 flex items-center gap-3">
