@@ -1265,9 +1265,10 @@ export class PostgresRepository implements AppRepository {
       await tx`lock table users, user_credentials in share row exclusive mode`;
       const [actor] = await tx`select user_id from users where user_id = ${input.actorUserId} and role = 'Admin'`;
       if (!actor) return null;
-      const [existing] = await tx`select user_id from users where lower(username) = ${input.username} limit 1`;
-      if (existing) return null;
       const email = `${input.username}@accounts.invalid`;
+      const [existing] = await tx`select user_id from users
+        where lower(username) = ${input.username} or lower(email) = ${email} limit 1`;
+      if (existing) return null;
       const [created] = await tx`insert into users (name, email, username, role)
         values (${input.name}, ${email}, ${input.username}, ${input.role}) returning user_id`;
       await tx`insert into user_credentials (user_id, password_hash, password_salt, password_algorithm,

@@ -476,7 +476,8 @@ export class DemoRepository implements AppRepository {
 
   async createArchiveUser(input: { username: string; name: string; role: "Staff" | "ReadOnly"; credential: UserCredential; actorUserId: string }): Promise<PublicUser | null> {
     if (!this.users.some((user) => user.userId === input.actorUserId && user.role === "Admin")
-      || this.users.some((user) => user.username?.toLowerCase() === input.username.toLowerCase())) return null;
+      || this.users.some((user) => user.username?.toLowerCase() === input.username.toLowerCase()
+        || user.email.toLowerCase() === `${input.username}@accounts.invalid`)) return null;
     const user: User = { userId: crypto.randomUUID(), name: input.name, email: `${input.username}@accounts.invalid`,
       username: input.username, role: input.role, createdAt: nowIso() };
     this.users.push(user);

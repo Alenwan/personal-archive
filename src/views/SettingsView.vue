@@ -61,7 +61,7 @@ async function createArchiveAccount() {
   creatingAccount.value = true;
   try {
     const result = await client.createArchiveUser(accountForm);
-    archiveUsers.value = await client.users();
+    archiveUsers.value = await client.users().catch(() => [result.user, ...archiveUsers.value]);
     accountMessage.value = `Created ${result.user.username}. Give the temporary password privately; the new user must change it at first login.`;
     Object.assign(accountForm, { username: "", name: "", role: "Staff", password: "", currentPassword: "" });
   } catch (error) {
@@ -423,9 +423,9 @@ onMounted(async () => {
 
         <form class="panel personal-settings-panel space-y-3 p-4" @submit.prevent="saveOwnPassword">
           <h2 class="font-bold">Change your password</h2>
-          <input v-model="passwordForm.current" class="input w-full" type="password" autocomplete="current-password" placeholder="Current password" required />
-          <input v-model="passwordForm.next" class="input w-full" type="password" autocomplete="new-password" placeholder="New password (10+ characters, letters and digits)" required />
-          <input v-model="passwordForm.confirm" class="input w-full" type="password" autocomplete="new-password" placeholder="Confirm new password" required />
+          <input v-model="passwordForm.current" class="input w-full" type="password" autocomplete="current-password" aria-label="Current password" placeholder="Current password" required />
+          <input v-model="passwordForm.next" class="input w-full" type="password" autocomplete="new-password" aria-label="New password" placeholder="New password (10+ characters, letters and digits)" required />
+          <input v-model="passwordForm.confirm" class="input w-full" type="password" autocomplete="new-password" aria-label="Confirm new password" placeholder="Confirm new password" required />
           <p v-if="passwordError" class="text-sm text-red-700" role="alert">{{ passwordError }}</p>
           <p v-if="passwordMessage" class="text-sm text-green-700" role="status">{{ passwordMessage }}</p>
           <button class="btn-primary" type="submit" :disabled="savingPassword">{{ savingPassword ? "Saving..." : "Change password" }}</button>
@@ -434,11 +434,11 @@ onMounted(async () => {
         <form v-if="canEditSettings" class="panel personal-settings-panel space-y-3 p-4" @submit.prevent="createArchiveAccount">
           <h2 class="font-bold">Add an account</h2>
           <p class="text-sm text-ink-500">The new user will change this temporary password at first login.</p>
-          <input v-model="accountForm.username" class="input w-full" autocomplete="off" placeholder="Username" required />
-          <input v-model="accountForm.name" class="input w-full" autocomplete="off" placeholder="Display name" required />
+          <input v-model="accountForm.username" class="input w-full" autocomplete="off" aria-label="New account username" placeholder="Username" required />
+          <input v-model="accountForm.name" class="input w-full" autocomplete="off" aria-label="New account display name" placeholder="Display name" required />
           <select v-model="accountForm.role" class="input w-full" aria-label="Account role"><option value="Staff">Standard</option><option value="ReadOnly">Read only</option></select>
-          <input v-model="accountForm.password" class="input w-full" type="password" autocomplete="new-password" placeholder="Temporary password (10+ characters, letters and digits)" required />
-          <input v-model="accountForm.currentPassword" class="input w-full" type="password" autocomplete="current-password" placeholder="Your current admin password" required />
+          <input v-model="accountForm.password" class="input w-full" type="password" autocomplete="new-password" aria-label="Temporary password for new account" placeholder="Temporary password (10+ characters, letters and digits)" required />
+          <input v-model="accountForm.currentPassword" class="input w-full" type="password" autocomplete="current-password" aria-label="Your current admin password" placeholder="Your current admin password" required />
           <p v-if="accountError" class="text-sm text-red-700" role="alert">{{ accountError }}</p>
           <p v-if="accountMessage" class="text-sm text-green-700" role="status">{{ accountMessage }}</p>
           <button class="btn-primary" type="submit" :disabled="creatingAccount">{{ creatingAccount ? "Creating..." : "Create account" }}</button>
