@@ -19,6 +19,7 @@ case "$mode" in
   lan)
     if [ "$#" -eq 2 ]; then
       bind_address=$2
+      private_ip "$bind_address" || die "Only a private LAN IPv4 address is allowed."
     else
       command -v ip >/dev/null 2>&1 || die "The ip command is required to detect a private LAN address. Supply one explicitly: network.sh lan 192.168.x.x"
       bind_address=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n 1)
