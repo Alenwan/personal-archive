@@ -69,6 +69,11 @@ if [ -n "$new_port" ]; then
   sed "s/^APP_PORT=.*/APP_PORT='$new_port'/" "$work/.env" > "$work/new.env"
   mv "$work/new.env" "$work/.env"
 fi
+# A backup may come from a host with a different private IP. Restore on
+# loopback first; the operator can select this host's LAN IP after recovery.
+sed '/^APP_BIND_ADDRESS=/d' "$work/.env" > "$work/new.env"
+printf "APP_BIND_ADDRESS='127.0.0.1'\n" >> "$work/new.env"
+mv "$work/new.env" "$work/.env"
 pa_check_bundled_env "$work/.env"
 project=$pa_project
 for volume in "${project}_postgres-data" "${project}_garage-data"; do

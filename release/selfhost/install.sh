@@ -11,16 +11,21 @@ command -v docker >/dev/null 2>&1 || die "Install Docker Engine and Docker Compo
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required."
 docker info >/dev/null 2>&1 || die "Docker is not running or this account cannot access it."
 
+new_configuration=0
 if [ ! -e .env ]; then
   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/setup" -w /setup \
     node:24.19.0-bookworm-slim@sha256:a9f5f7c91a432850b2a8a7797adf5eadb6c733ceed61167806cee7ea7fbc29df \
     node configure.mjs --bundled
+  new_configuration=1
 fi
 [ -f .env ] || die "Expected a regular .env file."
 [ "$(stat -c %a .env)" = 600 ] || die ".env must have mode 600; run chmod 600 release/selfhost/.env."
 grep -qx "S3_ENDPOINT='http://garage:3900'" .env || die "This installer only handles bundled storage. See README.md for an external S3 service."
 grep -qx "DOCUMENT_BUCKET_NAME='documents'" .env || die "Bundled storage requires the original documents bucket name."
 grep -qx "BACKUP_BUCKET_NAME='backups'" .env || die "Bundled storage requires the original backups bucket name."
+if [ "$new_configuration" -eq 1 ]; then
+  sh ./network.sh lan
+fi
 
 printf '\nBuilding Personal Archive and starting private storage...\n'
 dc config --quiet
@@ -73,7 +78,8 @@ while [ "$attempt" -lt 60 ]; do
 done
 [ "$ready" -eq 1 ] || die "App started but is not ready. Check docker compose ps and logs without posting .env."
 app_port=$(sed -n "s/^APP_PORT='\([0-9][0-9]*\)'$/\1/p" .env)
-printf '\nPersonal Archive is ready at http://127.0.0.1:%s on this Linux host.\n' "${app_port:-8080}"
+app_bind_address=$(sed -n "s/^APP_BIND_ADDRESS='\([0-9.]*\)'$/\1/p" .env)
+printf '\nPersonal Archive is ready at http://%s:%s.\n' "${app_bind_address:-127.0.0.1}" "${app_port:-8080}"
 printf 'There is no default login. Use the administrator email and password you entered.\n'
 printf 'To add household accounts later, run: sh release/selfhost/accounts.sh create --email person@example.org --name "Person"\n'
 printf 'Keep .env and both PostgreSQL/Garage volumes backed up together before storing important files.\n'
