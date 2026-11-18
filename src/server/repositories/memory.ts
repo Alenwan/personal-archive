@@ -192,6 +192,7 @@ function withoutCreatedAt(user: (typeof demoUsers)[number]): PublicUser {
     userId: user.userId,
     name: user.name,
     email: user.email,
+    username: (user as PublicUser).username ?? null,
     role: user.role,
     createdAt: user.createdAt,
     tenantId: DEFAULT_TENANT_ID,
