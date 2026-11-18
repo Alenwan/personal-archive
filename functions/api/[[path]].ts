@@ -1791,17 +1791,23 @@ app.use("*", async (context, next) => {
 });
 
 app.post("/auth/login", async (context) => {
-  const body = await context.req.json<{ email: string; password: string }>();
+  const body = await context.req.json<{ email?: string; username?: string; password?: string }>();
   const repo = context.get("repo");
-  const user = await repo.getUserByEmail(body.email);
-  const credential = user ? await repo.getUserCredential(user.userId) : null;
-  const expectedPassword = credential ? "" : expectedDemoPassword(body.email, context.env);
+  const identifier = (isPersonalArchive(context.env) ? body.username ?? body.email : body.email)?.trim() ?? "";
+  const candidate = isPersonalArchive(context.env)
+    ? await repo.getUserByUsername(identifier) ?? (identifier.includes("@") ? await repo.getUserByEmail(identifier) : null)
+    : await repo.getUserByEmail(identifier);
+  const loginUser = isPersonalArchive(context.env) && candidate?.username && candidate.username.toLowerCase() !== identifier.toLowerCase()
+    ? null : candidate;
+  const credential = loginUser ? await repo.getUserCredential(loginUser.userId) : null;
+  const expectedPassword = credential ? "" : expectedDemoPassword(loginUser?.email ?? identifier, context.env);
   const passwordMatches = credential
-    ? await verifyPassword(body.password, credential)
+    ? await verifyPassword(body.password ?? "", credential)
     : Boolean(expectedPassword && body.password === expectedPassword);
-  if (!user || !passwordMatches) {
+  if (!loginUser || !passwordMatches) {
     return context.json({ error: "Invalid credentials" }, 401);
   }
+  const user = loginUser;
   const currentTenantId = await repo.getDefaultTenantForUser(user.userId);
   const token = createSessionToken();
   const expiresAt = createSessionExpiry();

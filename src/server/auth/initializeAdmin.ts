@@ -1,12 +1,15 @@
 import type postgres from "postgres";
 import { hashPassword, validateNewPassword } from "./password";
 import { MIGRATION_LOCK, verifyMigrationHistory, type MigrationSignature } from "../services/schemaMigrations";
+import { internalAccountEmail, normalizeUsername, validUsername } from "./username";
 
 export class AdminInitializationError extends Error {}
 
 // Maintenance entry point, deliberately unavailable through the HTTP API.
-export async function initializeAdmin(sql: postgres.Sql, input: { email: string; name: string; password: string }, migrations: MigrationSignature[]): Promise<string> {
-  const email = input.email.trim().toLowerCase();
+export async function initializeAdmin(sql: postgres.Sql, input: { email?: string; username?: string; name: string; password: string }, migrations: MigrationSignature[]): Promise<string> {
+  const username = input.username ? normalizeUsername(input.username) : null;
+  if (username && !validUsername(username)) throw new AdminInitializationError("Username must be 3–32 lowercase letters, digits, dots, underscores or hyphens, starting with a letter.");
+  const email = username ? internalAccountEmail(username) : (input.email ?? "").trim().toLowerCase();
   const name = input.name.trim();
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email === "system@md3-platform.local") {
     throw new AdminInitializationError("Provide a valid, non-system email address.");
@@ -33,7 +36,7 @@ export async function initializeAdmin(sql: postgres.Sql, input: { email: string;
         and email = 'system@md3-platform.local' and role = 'ReadOnly'
       )) or exists(select 1 from user_credentials) as populated`;
     if (existing.populated) throw new AdminInitializationError("This instance already has an account. Initialization cannot reset or replace it.");
-    const [user] = await tx`insert into users (name, email, role) values (${name}, ${email}, 'Admin') returning user_id`;
+    const [user] = await tx`insert into users (name, email, username, role) values (${name}, ${email}, ${username}, 'Admin') returning user_id`;
     await tx`insert into user_credentials (
       user_id, password_hash, password_salt, password_algorithm, password_iterations,
       must_change_password, password_changed_at, failed_login_count, updated_at

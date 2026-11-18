@@ -499,6 +499,7 @@ export interface AppRepository {
   healthCheck(): Promise<void>;
   getDatabaseSizeBytes(): Promise<number | null>;
   getUserByEmail(email: string): Promise<PublicUser | null>;
+  getUserByUsername(username: string): Promise<PublicUser | null>;
   getUserById(userId: string): Promise<PublicUser | null>;
   listUsers(): Promise<PublicUser[]>;
   getUserCredential(userId: string): Promise<UserCredential | null>;

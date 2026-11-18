@@ -57,13 +57,13 @@ set -e
 case "$account_status" in
   0) printf 'An account already exists; keeping it unchanged.\n' ;;
   3)
-    printf 'First administrator email: ' >&2
-    IFS= read -r owner_email
-    [ -n "$owner_email" ] || die "Email is required."
+    printf 'First administrator username (for example, alen): ' >&2
+    IFS= read -r owner_username
+    [ -n "$owner_username" ] || die "Username is required."
     printf 'Display name [Archive Owner]: ' >&2
     IFS= read -r owner_name
     owner_name=${owner_name:-Archive Owner}
-    dc run --rm app node dist-server/init-admin.mjs --email "$owner_email" --name "$owner_name"
+    dc run --rm app node dist-server/init-admin.mjs --username "$owner_username" --name "$owner_name"
     ;;
   *) die "Could not inspect installed accounts. Nothing was reset." ;;
 esac
@@ -80,6 +80,6 @@ done
 app_port=$(sed -n "s/^APP_PORT='\([0-9][0-9]*\)'$/\1/p" .env)
 app_bind_address=$(sed -n "s/^APP_BIND_ADDRESS='\([0-9.]*\)'$/\1/p" .env)
 printf '\nPersonal Archive is ready at http://%s:%s.\n' "${app_bind_address:-127.0.0.1}" "${app_port:-8080}"
-printf 'There is no default login. Use the administrator email and password you entered.\n'
-printf 'To add household accounts later, run: sh release/selfhost/accounts.sh create --email person@example.org --name "Person"\n'
+printf 'There is no default login. Use the administrator username and password you entered.\n'
+printf 'To add household accounts later, run: sh release/selfhost/accounts.sh create --username person --name "Person"\n'
 printf 'Keep .env and both PostgreSQL/Garage volumes backed up together before storing important files.\n'

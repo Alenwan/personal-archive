@@ -458,6 +458,11 @@ export class DemoRepository implements AppRepository {
     return user ? withoutCreatedAt(user) : null;
   }
 
+  async getUserByUsername(username: string): Promise<PublicUser | null> {
+    const user = this.users.find((item) => (item as PublicUser).username?.toLowerCase() === username.toLowerCase());
+    return user ? withoutCreatedAt(user) : null;
+  }
+
   async getUserById(userId: string): Promise<PublicUser | null> {
     const user = this.users.find((item) => item.userId === userId);
     return user ? withoutCreatedAt(user) : null;

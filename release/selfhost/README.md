@@ -1,6 +1,6 @@
 # Install Personal Archive on one Linux host
 
-This Alpha installer runs the application, PostgreSQL and a private Garage S3 object store on one Linux host. It creates two private object buckets, applies database migrations and asks you to create the first administrator. There is **no default username, password, demo account or public registration**.
+This Alpha installer runs the application, PostgreSQL and a private Garage S3 object store on one Linux host. It creates two private object buckets, applies database migrations and asks you to create the first administrator with a username. There is **no default username, password, demo account or public registration**.
 
 The bundled Garage configuration is a single node with no storage redundancy. Use replaceable test files first. Before keeping important files, arrange an off-host backup of PostgreSQL, both Garage buckets, `.env` and the matching source version. The [recovery commands](#back-up-and-recover-the-bundled-installation) cover this bundled configuration. The previous [external-S3 installation](#use-an-existing-s3-service) remains available.
 
@@ -32,7 +32,7 @@ sh personal-archive/release/selfhost/install.sh
 
 If the Debian bootstrap was run with `sudo`, use `sudo` for later `accounts.sh`, `backup.sh`, `verify-backup.sh` and `restore.sh` commands on that host. Root owns the private `.env`; do not change its permissions to make commands run as another user.
 
-The installer generates a private `release/selfhost/.env` once, selects a private LAN IPv4 address for the application, builds the app, starts PostgreSQL and Garage, creates the two buckets, runs migrations, and asks for an administrator email, display name and password. It then checks `/readyz`. Re-running the command keeps the existing configuration, volumes and accounts; it does not rotate keys or reset passwords. If installation stops partway through, fix the reported cause and run it again.
+The installer generates a private `release/selfhost/.env` once, selects a private LAN IPv4 address for the application, builds the app, starts PostgreSQL and Garage, creates the two buckets, runs migrations, and asks for an administrator username, display name and password. It then checks `/readyz`. Re-running the command keeps the existing configuration, volumes and accounts; it does not rotate keys or reset passwords. If installation stops partway through, fix the reported cause and run it again.
 
 On another device on the same LAN, open the URL printed by the installer, such as `http://192.168.3.48:8080`. The app binds to that one private host address; PostgreSQL and Garage have no published host ports. The installer refuses an address outside the 10/8, 172.16/12 or 192.168/16 private IPv4 ranges. If automatic address selection is wrong or your host has multiple networks, use `sudo sh personal-archive/release/selfhost/network.sh lan PRIVATE_IPV4` from the clone's parent directory. For an older loopback-only installation, `sudo sh personal-archive/release/selfhost/network.sh lan` selects the current private address and recreates only the app container. Use `network.sh local` to return to loopback access. These commands preserve the existing accounts, keys, database and stored files.
 
@@ -42,16 +42,16 @@ After signing in, upload and download a replaceable test file, save a note and a
 
 ## Accounts
 
-The first administrator is the email and password **you enter during installation**. No account is created from repository examples. The app currently has no invite-email or full in-app member-management flow; a server operator uses these commands from the cloned repository:
+The first administrator is the username and password **you enter during installation**. A username is 3–32 characters: lowercase letters, digits, dots, underscores or hyphens, starting with a letter. No email address is required. No account is created from repository examples. The app currently has no invite-email or full in-app member-management flow; a server operator uses these commands from the cloned repository:
 
 ```sh
 sh personal-archive/release/selfhost/accounts.sh list
-sh personal-archive/release/selfhost/accounts.sh create --email person@example.org --name "Person"
-sh personal-archive/release/selfhost/accounts.sh create --email reader@example.org --name "Reader" --role ReadOnly
-sh personal-archive/release/selfhost/accounts.sh reset-password --email person@example.org
+sh personal-archive/release/selfhost/accounts.sh create --username person --name "Person"
+sh personal-archive/release/selfhost/accounts.sh create --username reader --name "Reader" --role ReadOnly
+sh personal-archive/release/selfhost/accounts.sh reset-password --username person
 ```
 
-Run these paths from the directory where you cloned the repository, or use their absolute paths. `create` defaults to the `Staff` role; `--role` can be `Admin`, `Manager`, `Staff` or `ReadOnly`. Both account creation and password reset ask for a temporary password twice without echoing it. Share that password privately. The user must change it at first sign-in; a reset also revokes active sessions. For automation, the underlying `manage-users.mjs` supports `--password-stdin`; never place passwords in shell arguments or `.env`.
+Run these paths from the directory where you cloned the repository, or use their absolute paths. `create` defaults to the `Staff` role; `--role` can be `Admin`, `Manager`, `Staff` or `ReadOnly`. Both account creation and password reset ask for a temporary password twice without echoing it. Share that password privately. The user must change it at first sign-in; a reset also revokes active sessions. For automation, the underlying `manage-users.mjs` supports `--password-stdin`; never place passwords in shell arguments or `.env`. To give an existing email-based account a username while retaining its data and password, run `accounts.sh set-username --email old@example.org --username alen`. This revokes that account's sessions; afterward it signs in as `alen`. Legacy accounts without a username may continue to sign in by email until renamed.
 
 Ordinary Archive files, notes and unencrypted writing are shared within an instance, while Private vault is scoped to each account. Creating an account does not create a private copy of ordinary Archive data.
 

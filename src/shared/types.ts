@@ -327,6 +327,7 @@ export interface User {
   userId: string;
   name: string;
   email: string;
+  username?: string | null;
   role: UserRole;
   createdAt: string;
 }

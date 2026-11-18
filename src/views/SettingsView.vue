@@ -377,7 +377,7 @@ onMounted(async () => {
           </div>
           <dl class="divide-y divide-ink-100 text-sm">
             <div class="flex justify-between gap-4 py-2.5"><dt class="text-ink-500">Name</dt><dd class="font-semibold">{{ auth.user?.name }}</dd></div>
-            <div class="flex justify-between gap-4 py-2.5"><dt class="text-ink-500">Username</dt><dd class="max-w-[13rem] truncate font-semibold">{{ auth.user?.email }}</dd></div>
+            <div class="flex justify-between gap-4 py-2.5"><dt class="text-ink-500">Username</dt><dd class="max-w-[13rem] truncate font-semibold">{{ auth.user?.username || auth.user?.email }}</dd></div>
             <div class="flex justify-between gap-4 py-2.5"><dt class="text-ink-500">Role</dt><dd class="font-semibold">{{ auth.user?.role }}</dd></div>
           </dl>
         </div>

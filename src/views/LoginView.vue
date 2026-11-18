@@ -13,12 +13,12 @@ const { t, toggleLocale } = useI18n();
 const { template } = useBusinessTemplate();
 
 const form = reactive({
-  email: "",
+  identifier: "",
   password: ""
 });
 
 async function submit() {
-  await auth.login(form.email, form.password);
+  await auth.login(form.identifier, form.password);
   await router.push(auth.mustChangePassword ? "/change-password" : template.value.personalArchive ? "/documents" : "/dashboard");
 }
 </script>
@@ -86,7 +86,7 @@ async function submit() {
         <label class="mb-4 block">
           <span class="mb-1 block text-sm font-semibold text-ink-700">{{ template.personalArchive ? "Username" : t("email") }}</span>
           <input
-            v-model="form.email"
+            v-model="form.identifier"
             class="input"
             :type="template.personalArchive ? 'text' : 'email'"
             autocomplete="username"
