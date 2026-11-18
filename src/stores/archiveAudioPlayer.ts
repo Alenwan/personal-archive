@@ -5,9 +5,17 @@ import type { DocumentRecord } from "../shared/types";
 export type ArchiveAudioRepeatMode = "off" | "all" | "one";
 
 export interface ArchiveAudioTrack {
-  documentId: string;
+  trackId: string;
   title: string;
   folderName: string;
+  streamUrl: string;
+}
+
+export interface ExternalAudioTrack {
+  trackId: string;
+  title: string;
+  folderName: string;
+  streamUrl: string;
 }
 
 const VOLUME_STORAGE_KEY = "personal-archive.audio-player.volume";
@@ -25,9 +33,10 @@ function storedRepeatMode(): ArchiveAudioRepeatMode {
 
 function toAudioTrack(document: DocumentRecord): ArchiveAudioTrack {
   return {
-    documentId: document.documentId,
+    trackId: document.documentId,
     title: document.originalFileName,
-    folderName: document.folderName ?? "Unfiled"
+    folderName: document.folderName ?? "Unfiled",
+    streamUrl: `/api/documents/${document.documentId}/preview`
   };
 }
 
@@ -52,6 +61,19 @@ export const useArchiveAudioPlayerStore = defineStore("archive-audio-player", ()
   const visible = computed(() => Boolean(currentTrack.value));
   const queuePosition = computed(() => currentIndex.value >= 0 ? currentIndex.value + 1 : 0);
 
+  function updateMediaSessionPosition() {
+    if (!("mediaSession" in navigator) || !Number.isFinite(duration.value) || duration.value <= 0) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: duration.value,
+        playbackRate: audioElement.value?.playbackRate || 1,
+        position: Math.min(duration.value, Math.max(0, currentTime.value))
+      });
+    } catch {
+      // Older WebKit releases expose Media Session without position-state support.
+    }
+  }
+
   function updateMediaSession() {
     if (!("mediaSession" in navigator) || !currentTrack.value) return;
     navigator.mediaSession.metadata = new MediaMetadata({
@@ -59,6 +81,13 @@ export const useArchiveAudioPlayerStore = defineStore("archive-audio-player", ()
       artist: contextLabel.value,
       album: "Personal Archive"
     });
+    navigator.mediaSession.playbackState = isPlaying.value ? "playing" : "paused";
+    updateMediaSessionPosition();
+  }
+
+  function refreshMediaSession() {
+    if (!currentTrack.value) return;
+    updateMediaSession();
   }
 
   function registerAudioElement(element: HTMLAudioElement | null) {
@@ -79,17 +108,17 @@ export const useArchiveAudioPlayerStore = defineStore("archive-audio-player", ()
     currentTime.value = 0;
     duration.value = 0;
     bufferedUntil.value = 0;
-    element.pause();
-    element.src = `/api/documents/${track.documentId}/preview`;
-    element.load();
+    element.src = track.streamUrl;
     updateMediaSession();
 
     if (!autoplay) {
+      element.load();
       isPlaying.value = false;
       return;
     }
 
     try {
+      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
       await element.play();
       if (requestId === loadRequestId) isPlaying.value = true;
     } catch {
@@ -101,7 +130,7 @@ export const useArchiveAudioPlayerStore = defineStore("archive-audio-player", ()
 
   function setQueue(documents: DocumentRecord[], startDocumentId: string, label: string, autoplay = true) {
     const tracks = documents.map(toAudioTrack);
-    const startIndex = tracks.findIndex((track) => track.documentId === startDocumentId);
+    const startIndex = tracks.findIndex((track) => track.trackId === startDocumentId);
     if (!tracks.length || startIndex < 0) return;
     queue.value = tracks;
     currentIndex.value = startIndex;
@@ -111,14 +140,24 @@ export const useArchiveAudioPlayerStore = defineStore("archive-audio-player", ()
   }
 
   function replaceQueuePreservingCurrent(documents: DocumentRecord[], expectedDocumentId: string, label: string) {
-    if (currentTrack.value?.documentId !== expectedDocumentId) return;
+    if (currentTrack.value?.trackId !== expectedDocumentId) return;
     const tracks = documents.map(toAudioTrack);
-    const nextIndex = tracks.findIndex((track) => track.documentId === expectedDocumentId);
+    const nextIndex = tracks.findIndex((track) => track.trackId === expectedDocumentId);
     if (!tracks.length || nextIndex < 0) return;
     queue.value = tracks;
     currentIndex.value = nextIndex;
     contextLabel.value = label;
     updateMediaSession();
+  }
+
+  function setExternalQueue(tracks: ExternalAudioTrack[], startTrackId: string, label: string, autoplay = true) {
+    const startIndex = tracks.findIndex((track) => track.trackId === startTrackId);
+    if (!tracks.length || startIndex < 0) return;
+    queue.value = tracks.map((track) => ({ ...track }));
+    currentIndex.value = startIndex;
+    contextLabel.value = label;
+    queueOpen.value = false;
+    void loadCurrent(autoplay);
   }
 
   async function play() {
@@ -219,6 +258,7 @@ export const useArchiveAudioPlayerStore = defineStore("archive-audio-player", ()
     duration.value = Number.isFinite(element.duration) ? element.duration : 0;
     const lastRange = element.buffered.length ? element.buffered.end(element.buffered.length - 1) : 0;
     bufferedUntil.value = Number.isFinite(lastRange) ? lastRange : 0;
+    updateMediaSessionPosition();
   }
 
   function onLoadedMetadata() {
@@ -288,8 +328,10 @@ export const useArchiveAudioPlayerStore = defineStore("archive-audio-player", ()
     queueOpen,
     error,
     registerAudioElement,
+    refreshMediaSession,
     setQueue,
     replaceQueuePreservingCurrent,
+    setExternalQueue,
     play,
     pause,
     togglePlayback,

@@ -14,11 +14,72 @@ import {
   VolumeX,
   X
 } from "lucide-vue-next";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { useRoute } from "vue-router";
 import { useArchiveAudioPlayerStore } from "../../stores/archiveAudioPlayer";
+import { useAudioPlayerPresentationStore } from "../../stores/audioPlayerPresentation";
+
+defineOptions({ inheritAttrs: false });
+
+interface PlaybackAudioSession {
+  type: "auto" | "ambient" | "playback" | "transient" | "transient-solo" | "play-and-record";
+}
 
 const player = useArchiveAudioPlayerStore();
+const presentation = useAudioPlayerPresentationStore();
+const route = useRoute();
 const audioElement = ref<HTMLAudioElement | null>(null);
+const panelElement = ref<HTMLElement | null>(null);
+const miniElement = ref<HTMLElement | null>(null);
+const expandButton = ref<HTMLButtonElement | null>(null);
+const queueElement = ref<HTMLElement | null>(null);
+const queueToggle = ref<HTMLButtonElement | null>(null);
+const collapseButton = ref<HTMLButtonElement | null>(null);
+let pendingControlFocus: "expand" | "collapse" | null = null;
+const fullscreenHost = shallowRef<HTMLElement | null>(null);
+const overlayHost = computed(() => fullscreenHost.value ?? presentation.modalHost);
+const focusContext = computed(() => presentation.focusActive || ["reader", "manuscript-workspace", "knowledge-detail"].includes(String(route.name)));
+
+function collapsePanel(moveFocus = false) {
+  player.queueOpen = false;
+  presentation.collapse();
+  pendingControlFocus = moveFocus ? "expand" : null;
+}
+
+function expandPanel() {
+  presentation.expand();
+  pendingControlFocus = "collapse";
+}
+
+function restoreControlFocus() {
+  const target = pendingControlFocus === "expand" ? expandButton.value
+    : pendingControlFocus === "collapse" ? collapseButton.value : null;
+  pendingControlFocus = null;
+  target?.focus({ preventScroll: true });
+}
+
+function syncFullscreenHost() {
+  fullscreenHost.value = document.fullscreenElement instanceof HTMLElement ? document.fullscreenElement : null;
+  if (fullscreenHost.value && player.visible) collapsePanel();
+}
+
+watch(() => route.path, (path, previous) => {
+  if (!player.visible || path === previous) return;
+  if (route.name === "music" && !presentation.focusActive) presentation.expand();
+  else collapsePanel();
+});
+watch(() => presentation.focusActive, active => { if (active && player.visible) collapsePanel(); });
+watch(() => presentation.collapsed, collapsed => { if (collapsed) player.queueOpen = false; }, { flush: "sync" });
+watch(() => player.visible, visible => {
+  if (!visible) presentation.expand();
+  else if (focusContext.value) collapsePanel();
+}, { immediate: true });
+// Only explicit playlist starts expand the UI. Automatic next/previous tracks
+// and background queue hydration must not pop the large panel over a reader.
+const stopActionListener = player.$onAction(({ name, after }) => {
+  if (name !== "setQueue" && name !== "setExternalQueue") return;
+  after(() => { if (focusContext.value) collapsePanel(); else presentation.expand(); });
+});
 
 const progressMaximum = computed(() => Math.max(player.duration, 0));
 const progressValue = computed(() => Math.min(player.currentTime, progressMaximum.value));
@@ -44,7 +105,18 @@ function onVolumeInput(event: Event) {
   player.setVolume(Number.parseFloat((event.target as HTMLInputElement).value));
 }
 
+function configureBackgroundAudioSession() {
+  const audioSession = (navigator as Navigator & { audioSession?: PlaybackAudioSession }).audioSession;
+  if (!audioSession) return;
+  try {
+    audioSession.type = "playback";
+  } catch {
+    // WebKit exposes this progressively; ordinary HTML audio remains the fallback.
+  }
+}
+
 function installMediaSessionHandlers() {
+  configureBackgroundAudioSession();
   if (!("mediaSession" in navigator)) return;
   const handlers: Array<[MediaSessionAction, MediaSessionActionHandler | null]> = [
     ["play", () => void player.play()],
@@ -64,12 +136,61 @@ function installMediaSessionHandlers() {
   }
 }
 
+function restoreSystemPlaybackSession() {
+  installMediaSessionHandlers();
+  player.refreshMediaSession();
+}
+
+function dismissQueueOutside(target: EventTarget | null) {
+  if (!player.queueOpen || !(target instanceof Node)) return;
+  if (queueElement.value?.contains(target) || queueToggle.value?.contains(target)) return;
+  player.queueOpen = false;
+}
+
+function onDocumentPointerDown(event: PointerEvent) {
+  dismissQueueOutside(event.target);
+  if (!presentation.collapsed && player.visible && focusContext.value && event.target instanceof Node
+    && !panelElement.value?.contains(event.target) && !miniElement.value?.contains(event.target)) collapsePanel();
+}
+
+function onDocumentFocusIn(event: FocusEvent) {
+  dismissQueueOutside(event.target);
+  if (!presentation.collapsed && player.visible && focusContext.value && event.target instanceof Node
+    && !panelElement.value?.contains(event.target) && !miniElement.value?.contains(event.target)) collapsePanel();
+}
+
+function onDocumentKeyDown(event: KeyboardEvent) {
+  if (event.key !== "Escape") return;
+  if (player.queueOpen) {
+    player.queueOpen = false;
+    queueToggle.value?.focus();
+    event.stopPropagation();
+  } else if (!presentation.collapsed && event.target instanceof Node && panelElement.value?.contains(event.target)) {
+    collapsePanel(true);
+    event.stopPropagation();
+  }
+}
+
 onMounted(() => {
   player.registerAudioElement(audioElement.value);
-  installMediaSessionHandlers();
+  restoreSystemPlaybackSession();
+  syncFullscreenHost();
+  window.addEventListener("pageshow", restoreSystemPlaybackSession);
+  document.addEventListener("visibilitychange", restoreSystemPlaybackSession);
+  document.addEventListener("pointerdown", onDocumentPointerDown, true);
+  document.addEventListener("focusin", onDocumentFocusIn, true);
+  document.addEventListener("keydown", onDocumentKeyDown);
+  document.addEventListener("fullscreenchange", syncFullscreenHost);
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener("pageshow", restoreSystemPlaybackSession);
+  document.removeEventListener("visibilitychange", restoreSystemPlaybackSession);
+  document.removeEventListener("pointerdown", onDocumentPointerDown, true);
+  document.removeEventListener("focusin", onDocumentFocusIn, true);
+  document.removeEventListener("keydown", onDocumentKeyDown);
+  document.removeEventListener("fullscreenchange", syncFullscreenHost);
+  stopActionListener();
   player.registerAudioElement(null);
   if (!("mediaSession" in navigator)) return;
   for (const action of ["play", "pause", "previoustrack", "nexttrack", "seekbackward", "seekforward", "seekto"] as MediaSessionAction[]) {
@@ -86,7 +207,7 @@ onBeforeUnmount(() => {
   <audio
     ref="audioElement"
     class="hidden"
-    preload="metadata"
+    preload="auto"
     @timeupdate="player.updateProgress"
     @progress="player.updateProgress"
     @durationchange="player.updateProgress"
@@ -97,10 +218,31 @@ onBeforeUnmount(() => {
     @ended="player.onEnded"
     @error="player.onError"
   />
-  <Transition name="archive-player">
-    <section v-if="player.visible" class="archive-audio-player" aria-label="Archive audio player">
+  <!-- Move only controls into a native modal/fullscreen top layer. The original
+       audio node above never moves, unmounts or changes src while folding. -->
+  <Teleport :to="overlayHost || 'body'" :disabled="!overlayHost">
+  <Transition name="archive-player" mode="out-in" @after-enter="restoreControlFocus">
+    <section v-if="player.visible && presentation.collapsed" key="mini" ref="miniElement" v-bind="$attrs" class="archive-audio-mini" :class="{ 'is-focus-overlay': overlayHost || presentation.focusActive }" aria-label="Minimized music player">
+      <button ref="expandButton" class="archive-audio-expand" type="button" title="Show music player" aria-label="Show music player" :aria-expanded="false" @click="expandPanel">
+        <ListMusic aria-hidden="true" />
+        <span>
+          <strong>Music <ChevronUp aria-hidden="true" /></strong>
+          <small :title="player.error || player.currentTrack?.title">{{ player.error ? 'Playback needs attention' : player.currentTrack?.title }}</small>
+        </span>
+      </button>
+      <button class="archive-audio-mini-play" type="button" :title="player.isPlaying ? 'Pause' : 'Play'" :aria-label="player.isPlaying ? 'Pause' : 'Play'" @click="player.togglePlayback">
+        <LoaderCircle v-if="player.isLoading" class="animate-spin" />
+        <Pause v-else-if="player.isPlaying" />
+        <Play v-else />
+      </button>
+      <button class="archive-audio-mini-close" type="button" title="Close player" aria-label="Close player" @click="player.closePlayer">
+        <X />
+      </button>
+      <p v-if="player.error" class="sr-only" role="status">{{ player.error }}</p>
+    </section>
+    <section v-else-if="player.visible" key="expanded" ref="panelElement" v-bind="$attrs" class="archive-audio-player" :class="{ 'is-focus-overlay': overlayHost || presentation.focusActive }" aria-label="Archive audio player">
       <Transition name="archive-queue">
-        <section v-if="player.queueOpen" class="archive-audio-queue" aria-label="Current playback queue">
+        <section ref="queueElement" v-if="player.queueOpen" class="archive-audio-queue" aria-label="Current playback queue">
           <header>
             <div class="min-w-0">
               <p>Playing from</p>
@@ -109,7 +251,7 @@ onBeforeUnmount(() => {
             <span>{{ player.queue.length }} tracks</span>
           </header>
           <ol>
-            <li v-for="(track, index) in player.queue" :key="track.documentId">
+            <li v-for="(track, index) in player.queue" :key="track.trackId">
               <button
                 type="button"
                 :class="index === player.currentIndex ? 'is-current' : ''"
@@ -204,6 +346,7 @@ onBeforeUnmount(() => {
           />
         </div>
         <button
+          ref="queueToggle"
           type="button"
           :class="player.queueOpen ? 'is-active' : ''"
           :title="player.queueOpen ? 'Hide queue' : 'Show queue'"
@@ -215,38 +358,68 @@ onBeforeUnmount(() => {
           <ChevronDown v-if="player.queueOpen" class="archive-audio-tool-caret" />
           <ChevronUp v-else class="archive-audio-tool-caret" />
         </button>
+        <button ref="collapseButton" type="button" title="Minimize player" aria-label="Minimize player" :aria-expanded="true" @click="collapsePanel(true)">
+          <ChevronDown />
+        </button>
         <button type="button" title="Close player" aria-label="Close player" @click="player.closePlayer">
           <X />
         </button>
       </div>
     </section>
   </Transition>
+  </Teleport>
 </template>
 
 <style scoped>
-.archive-audio-player {
+.archive-audio-player,
+.archive-audio-mini {
   --player-line: color-mix(in srgb, var(--personal-border, #d8d8cd) 82%, transparent);
   --player-ink: var(--personal-text, #20201d);
-  --player-muted: var(--personal-muted, #6c6c63);
-  --player-surface: color-mix(in srgb, var(--personal-surface-raised, #fff) 94%, transparent);
+  --player-muted: color-mix(in srgb, var(--player-ink) 72%, var(--personal-surface, #fff));
+  --player-surface: color-mix(in srgb, var(--personal-surface, #fff) 96%, transparent);
   position: fixed;
   right: 0.75rem;
   bottom: max(0.75rem, env(safe-area-inset-bottom));
   left: 0.75rem;
   z-index: 45;
-  display: grid;
-  grid-template-columns: minmax(12rem, 0.9fr) minmax(20rem, 1.45fr) auto;
-  align-items: center;
-  gap: 1rem;
-  min-height: 5.15rem;
   border: 1px solid var(--player-line);
-  border-radius: 1rem;
   background: var(--player-surface);
-  padding: 0.65rem 0.75rem;
   color: var(--player-ink);
   box-shadow: 0 18px 48px color-mix(in srgb, var(--player-ink) 18%, transparent);
   backdrop-filter: blur(18px);
+}
+
+.archive-audio-player {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(16rem, 1.45fr) auto;
+  align-items: center;
+  gap: 1rem;
+  min-height: 5.15rem;
+  border-radius: 1rem;
+  padding: 0.65rem 0.75rem;
   transition: left 180ms ease, right 180ms ease, transform 180ms ease, opacity 180ms ease;
+}
+
+.archive-audio-player.is-focus-overlay, .archive-audio-mini.is-focus-overlay { z-index: 95; }
+
+.archive-audio-mini { display: flex; right: auto; width: min(15rem, calc(100vw - 10rem)); min-width: 9rem; min-height: 3rem; border-radius: 0.85rem; padding: 0.15rem; }
+.archive-audio-expand { display: flex; flex: 1; min-width: 0; min-height: 2.75rem; align-items: center; gap: 0.45rem; padding: 0.2rem 0.45rem; border-radius: 0.65rem; text-align: left; }
+.archive-audio-expand > svg { width: 1.1rem; height: 1.1rem; flex: 0 0 auto; color: var(--personal-accent-strong, #245e56); }
+.archive-audio-expand > span { min-width: 0; }
+.archive-audio-expand strong { display: flex; align-items: center; gap: 0.2rem; font-size: 0.74rem; }
+.archive-audio-expand strong svg { width: 0.8rem; height: 0.8rem; }
+.archive-audio-expand small { display: block; overflow: hidden; color: var(--player-muted); font-size: 0.65rem; text-overflow: ellipsis; white-space: nowrap; }
+.archive-audio-mini-play { display: grid; width: 2.75rem; min-height: 2.75rem; flex: 0 0 auto; place-items: center; border-radius: 0.65rem; background: var(--personal-accent, #397f75); color: var(--personal-accent-contrast, #fff); }
+.archive-audio-mini-play svg { width: 1.2rem; height: 1.2rem; }
+.archive-audio-mini-close { display: grid; width: 2.75rem; min-height: 2.75rem; flex: 0 0 auto; place-items: center; border-radius: 0.65rem; color: var(--player-muted); }
+.archive-audio-mini-close svg { width: 1.1rem; height: 1.1rem; }
+.archive-audio-mini-close:hover { background: var(--personal-accent-soft, #dff0ec); color: var(--player-ink); }
+.archive-audio-expand:hover { background: var(--personal-accent-soft, #dff0ec); }
+.archive-audio-player button:focus-visible, .archive-audio-mini button:focus-visible { outline: 2px solid var(--personal-accent, #397f75); outline-offset: 2px; }
+
+@media (min-width: 1024px) {
+  .archive-audio-player, .archive-audio-mini { left: var(--archive-player-desktop-left, 0.75rem); }
+  .archive-audio-player.is-focus-overlay, .archive-audio-mini.is-focus-overlay { left: 0.75rem; }
 }
 
 .archive-audio-track {
@@ -326,7 +499,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border: 1px solid var(--player-line);
   border-radius: 0.9rem;
-  background: var(--personal-surface-raised, #fff);
+  background: var(--personal-surface, #fff);
   box-shadow: 0 18px 48px color-mix(in srgb, var(--player-ink) 18%, transparent);
 }
 .archive-audio-queue header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--player-line); padding: 0.8rem 0.9rem; }
@@ -364,7 +537,7 @@ onBeforeUnmount(() => {
   .archive-audio-track strong { font-size: 0.86rem; }
   .archive-audio-track small { display: none; }
   .archive-audio-tools { grid-column: 2; grid-row: 1; }
-  .archive-audio-tools button { width: 2.75rem; height: 2.75rem; border-radius: 0.72rem; }
+  .archive-audio-tools button { width: 2.75rem; height: 2.75rem; min-width: 2.75rem; min-height: 2.75rem; border-radius: 0.72rem; }
   .archive-audio-tools svg { width: 1.15rem; height: 1.15rem; }
   .archive-audio-volume { display: none; }
   .archive-audio-transport { display: grid; grid-column: 1 / -1; grid-row: 2; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.5rem; }
@@ -403,7 +576,7 @@ onBeforeUnmount(() => {
     height: 3.5rem;
     border: 1px solid var(--player-line);
     border-radius: 999px;
-    background: color-mix(in srgb, var(--personal-surface-raised, #fff) 78%, transparent);
+    background: color-mix(in srgb, var(--personal-surface, #fff) 78%, transparent);
   }
   .archive-audio-buttons .archive-audio-play {
     width: 4.35rem;
@@ -428,7 +601,7 @@ onBeforeUnmount(() => {
     width: 1.25rem;
     height: 1.25rem;
     margin-top: -0.45rem;
-    border: 0.2rem solid var(--personal-surface-raised, #fff);
+    border: 0.2rem solid var(--personal-surface, #fff);
     border-radius: 999px;
     -webkit-appearance: none;
     appearance: none;
@@ -439,7 +612,7 @@ onBeforeUnmount(() => {
   .archive-audio-timeline input::-moz-range-thumb {
     width: 0.95rem;
     height: 0.95rem;
-    border: 0.2rem solid var(--personal-surface-raised, #fff);
+    border: 0.2rem solid var(--personal-surface, #fff);
     border-radius: 999px;
     background: var(--personal-accent, #397f75);
   }
@@ -457,6 +630,7 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 390px) {
+  .archive-audio-expand > svg { display: none; }
   .archive-audio-player { right: 0.3rem; left: 0.3rem; padding: 0.65rem; }
   .archive-audio-art { width: 2.55rem; height: 2.55rem; }
   .archive-audio-track { grid-template-columns: 2.55rem minmax(0, 1fr); }
@@ -466,6 +640,7 @@ onBeforeUnmount(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .archive-audio-player,
+  .archive-audio-mini,
   .archive-player-enter-active,
   .archive-player-leave-active,
   .archive-queue-enter-active,

@@ -7,10 +7,13 @@ A self-hosted workspace for documents, reading notes, knowledge, long writing, a
 ## What it does
 
 - Organize files in folders, keep versions, preview/download documents, and recover items from the trash.
-- Browse images with fit and fullscreen controls, and play audio files from an Archive folder in a persistent queue.
+- Browse images with fit and fullscreen controls. Fullscreen tools stay in a compact corner panel and can hide while browsing.
+- Play audio files from an Archive folder in a persistent queue. The player can collapse to a mini control while reading.
 - Read documents and keep notes or structured knowledge alongside them.
-- Write in chapters with history, personal reading bookmarks and export; optionally encrypt a work in the browser.
+- Write in chapters with history, personal reading bookmarks and export; optionally encrypt a work in the browser. Read/Edit switching anchors to visible content.
 - Keep a vault scoped to your account, with a separate password.
+
+The public release follows the core Archive, reading and vault experience. The private deployments also contain site-specific integrations for Microsoft mail, NAS music and backups, Forgejo administration and Wake-on-LAN; those require separate service configuration and are not part of this one-host installer.
 
 Ordinary Archive documents, notes and unencrypted writing are shared within an instance. Vault ownership is separate. Server-assisted recovery has access boundaries and depends on preserved recovery keys; this is not a promise that a server operator can never decrypt data.
 
@@ -26,7 +29,15 @@ These screenshots were taken from test-only or locked views. They do not show pr
 
 ## Install on one Linux host
 
-With Docker Engine and Docker Compose v2.24+ installed, clone this repository and run:
+On a fresh Debian 12 or 13 host, clone the repository and run the interactive bootstrap as root:
+
+```sh
+sudo apt-get update && sudo apt-get install -y git
+git clone https://github.com/Alenwan/personal-archive.git
+sudo sh personal-archive/release/selfhost/debian-install.sh
+```
+
+The bootstrap installs Docker Engine, Compose and `age` using Docker's official Debian APT repository, then runs the application installer. It refuses conflicting container packages instead of removing them. If Docker Engine and Compose v2.24+ are already installed on another Linux distribution, run:
 
 ```sh
 git clone https://github.com/Alenwan/personal-archive.git
@@ -35,7 +46,7 @@ sh personal-archive/release/selfhost/install.sh
 
 The interactive installer runs the app, PostgreSQL and private Garage object storage on one host. It creates the buckets, runs migrations and asks you to create the first administrator. There is **no default account or password**. The app binds to the host's loopback interface; access from other devices needs an HTTPS reverse proxy or SSH tunnel. See the [English installation and account guide](release/selfhost/README.md) or [中文安装说明](release/selfhost/README.zh-CN.md). An existing S3-compatible service can still be used through the manual path.
 
-The combined installer passed a fresh Docker/Linux arm64 run with PostgreSQL 16.13 and Garage 2.3.0: administrator login, account creation, readiness and safe repeat installation. The new recovery commands passed a synthetic backup and empty-instance restore on Ubuntu 24.04/amd64, including original file bytes, a note, a chapter and a backup-bucket manifest. External HTTPS, larger real-world archives and the separate production MinIO layout remain untested. See the [validation record](release/selfhost/VALIDATION.md) for exact coverage.
+The combined installer passed a fresh Docker/Linux arm64 run with PostgreSQL 16.13 and Garage 2.3.0: administrator login, account creation, readiness and safe repeat installation. The recovery commands passed a synthetic backup and empty-instance restore on Ubuntu 24.04/amd64, including original file bytes, a note, a chapter and a backup-bucket manifest. The Debian 12/13 bootstrap follows Docker's supported package instructions; an end-to-end run on those distributions is still pending. External HTTPS, larger real-world archives and the separate production MinIO layout remain untested. See the [validation record](release/selfhost/VALIDATION.md) for exact coverage.
 
 ## Development
 

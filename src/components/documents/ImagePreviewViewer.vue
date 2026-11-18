@@ -13,6 +13,7 @@ import {
   ZoomOut
 } from "lucide-vue-next";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useImageFullscreen } from "../../composables/useImageFullscreen";
 
 const props = withDefaults(
   defineProps<{
@@ -55,7 +56,7 @@ const panX = ref(0);
 const panY = ref(0);
 const dragging = ref(false);
 const pinching = ref(false);
-const fullscreen = ref(false);
+const { fullscreen, toggleFullscreen, exitFullscreen } = useImageFullscreen(viewer);
 const controlsVisible = ref(true);
 let controlsTimer: ReturnType<typeof setTimeout> | undefined;
 let keyboardControls = false;
@@ -135,7 +136,7 @@ const sequenceStatus = computed(() => {
 });
 
 function clampScale(value: number) {
-  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
+  return Math.min(Math.max(MAX_SCALE, fitScale.value), Math.max(Math.min(MIN_SCALE, fitScale.value), value));
 }
 
 function resetPan() {
@@ -148,11 +149,11 @@ function calculateFitScale() {
   const quarterTurn = Math.abs(rotation.value / 90) % 2 === 1;
   const imageWidth = quarterTurn ? naturalHeight.value : naturalWidth.value;
   const imageHeight = quarterTurn ? naturalWidth.value : naturalHeight.value;
-  const horizontalPadding = fullscreen.value ? 8 : 32;
-  const verticalPadding = fullscreen.value ? 8 : 32;
+  const horizontalPadding = fullscreen.value ? 0 : 8;
+  const verticalPadding = fullscreen.value ? 0 : 8;
   const availableWidth = Math.max(1, canvas.value.clientWidth - horizontalPadding);
   const availableHeight = Math.max(1, canvas.value.clientHeight - verticalPadding);
-  fitScale.value = Math.min(1, availableWidth / imageWidth, availableHeight / imageHeight);
+  fitScale.value = Math.min(availableWidth / imageWidth, availableHeight / imageHeight);
   if (viewMode.value === "fit") {
     scale.value = fitScale.value;
     resetPan();
@@ -331,23 +332,24 @@ function onPointerCancel(event: PointerEvent) {
   onPointerUp(event);
 }
 
-async function toggleFullscreen() {
-  if (!viewer.value) return;
-  if (document.fullscreenElement === viewer.value) await document.exitFullscreen();
-  else await viewer.value.requestFullscreen();
-}
-
 function onFullscreenChange() {
-  fullscreen.value = document.fullscreenElement === viewer.value;
   clearTimeout(controlsTimer);
   controlsVisible.value = !fullscreen.value;
-  if (fullscreen.value) viewer.value?.focus({ preventScroll: true });
+  if (fullscreen.value) {
+    viewMode.value = "fit";
+    viewer.value?.focus({ preventScroll: true });
+  }
   void nextTick(calculateFitScale);
 }
+watch(fullscreen, onFullscreenChange, { flush: "post" });
 
 function onKeydown(event: KeyboardEvent) {
   keyboardControls = true;
-  if (event.key === "+" || event.key === "=") zoomIn();
+  if (event.key === "Escape" && fullscreen.value) {
+    event.stopPropagation();
+    void exitFullscreen();
+  }
+  else if (event.key === "+" || event.key === "=") zoomIn();
   else if (event.key === "-") zoomOut();
   else if (event.key === "0") fitToWindow();
   else if (event.key === "1") actualSize();
@@ -375,7 +377,6 @@ watch(
 );
 
 onMounted(() => {
-  document.addEventListener("fullscreenchange", onFullscreenChange);
   resizeObserver = new ResizeObserver(calculateFitScale);
   if (canvas.value) resizeObserver.observe(canvas.value);
 });
@@ -383,7 +384,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   disposed = true;
   clearTimeout(controlsTimer);
-  document.removeEventListener("fullscreenchange", onFullscreenChange);
   activePointers.clear();
   swipePointerId = null;
   resizeObserver?.disconnect();
@@ -394,7 +394,7 @@ onBeforeUnmount(() => {
   <div
     ref="viewer"
     class="image-viewer"
-    :class="{ 'controls-hidden': fullscreen && !controlsVisible }"
+    :class="{ 'is-fullscreen': fullscreen, 'controls-hidden': fullscreen && !controlsVisible }"
     tabindex="0"
     role="application"
     aria-label="Image preview"
@@ -404,11 +404,14 @@ onBeforeUnmount(() => {
     @pointerout="onControlsOut"
     @focusout="scheduleHideControls"
   >
-    <button v-if="fullscreen" class="image-viewer-tools-handle" type="button"
-      :aria-expanded="controlsVisible" aria-label="Show image tools"
-      @pointerenter="onHandleEnter" @pointerleave="scheduleHideControls" @click="showControls">
-      ⌄ Tools
-    </button>
+    <div v-if="fullscreen" class="image-viewer-dock">
+      <button class="image-viewer-tools-handle" type="button"
+        :aria-expanded="controlsVisible" aria-label="Show image tools"
+        @pointerenter="onHandleEnter" @pointerleave="scheduleHideControls" @click="showControls">
+        ⌄ Tools
+      </button>
+      <button class="image-viewer-exit" type="button" title="Exit full screen (F)" aria-label="Leave full screen" @click="exitFullscreen"><Minimize2 /></button>
+    </div>
     <div class="image-viewer-toolbar" role="toolbar" aria-label="Image controls">
       <div class="image-viewer-group">
         <button type="button" title="Zoom out (−)" aria-label="Zoom out" @click="zoomOut"><ZoomOut /></button>
@@ -527,9 +530,13 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 0 0 2px #7dc4bc;
 }
 
-.image-viewer:fullscreen {
+.image-viewer.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   background: #111413;
 }
 
@@ -848,19 +855,31 @@ onBeforeUnmount(() => {
   white-space: normal;
   text-align: center;
 }
-.image-viewer:fullscreen .image-viewer-canvas { flex: none; height: 100%; }
-.image-viewer:fullscreen .image-viewer-toolbar {
+.image-viewer.is-fullscreen .image-viewer-canvas { flex: none; height: 100%; }
+.image-viewer.is-fullscreen .image-viewer-image { border-radius: 0; box-shadow: none; }
+.image-viewer.is-fullscreen .image-viewer-toolbar {
   position: absolute;
-  top: calc(max(0rem, env(safe-area-inset-top)) + 1.8rem);
-  left: 50%;
-  width: max-content;
-  max-width: calc(100% - 1rem);
-  transform: translateX(-50%);
+  top: calc(max(0rem, env(safe-area-inset-top)) + 3.25rem);
+  right: max(0.25rem, env(safe-area-inset-right));
+  left: auto;
+  width: 16rem;
+  max-width: calc(100% - max(0.25rem, env(safe-area-inset-left)) - max(0.25rem, env(safe-area-inset-right)));
+  max-height: calc(100% - max(0rem, env(safe-area-inset-top)) - 3.75rem);
+  transform: none;
+  flex-wrap: wrap;
   justify-content: flex-start;
+  overflow: auto;
   border-width: 1px;
   border-radius: 0.75rem;
+  background: rgba(18, 22, 21, 0.46);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(10px);
 }
-.image-viewer:fullscreen .image-viewer-footer {
+.image-viewer.is-fullscreen .image-viewer-divider { display: none; }
+.image-viewer.is-fullscreen .image-viewer-group { flex: none; }
+.image-viewer.is-fullscreen .image-viewer-toolbar button,
+.image-viewer.is-fullscreen .image-viewer-toolbar a { width: 2.75rem; height: 2.75rem; }
+.image-viewer.is-fullscreen .image-viewer-footer {
   position: absolute;
   z-index: 4;
   bottom: max(0.35rem, env(safe-area-inset-bottom));
@@ -871,15 +890,17 @@ onBeforeUnmount(() => {
   border-radius: 0.75rem;
   background: rgba(18, 22, 21, 0.76);
 }
-.image-viewer:fullscreen .image-viewer-nav { top: 50%; }
-.image-viewer-tools-handle {
+.image-viewer.is-fullscreen .image-viewer-nav { top: 50%; }
+.image-viewer-dock {
   position: absolute;
   z-index: 6;
   top: max(0rem, env(safe-area-inset-top));
-  left: 50%;
-  transform: translateX(-50%);
-  min-width: 5rem;
-  min-height: 1.6rem;
+  right: max(0.25rem, env(safe-area-inset-right));
+  display: flex;
+}
+.image-viewer-tools-handle, .image-viewer-exit {
+  min-width: 44px;
+  min-height: 44px;
   padding: 0.15rem 0.65rem;
   border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 0 0 0.6rem 0.6rem;
@@ -888,6 +909,8 @@ onBeforeUnmount(() => {
   font-size: 0.7rem;
   cursor: pointer;
 }
+.image-viewer-exit { display: grid; place-items: center; }
+.image-viewer-exit svg { width: 1rem; height: 1rem; }
 .image-viewer-tools-handle:focus-visible { outline: 2px solid #7dc4bc; outline-offset: 2px; }
 .image-viewer.controls-hidden .image-viewer-toolbar,
 .image-viewer.controls-hidden .image-viewer-footer,

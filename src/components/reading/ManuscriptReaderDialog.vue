@@ -20,12 +20,15 @@ import {
 import { marked } from "marked";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { client } from "../../api/client";
+import { useAudioPlayerFocus } from "../../composables/useAudioPlayerFocus";
 import { useManuscriptContentsVisibility } from "../../composables/useManuscriptContentsVisibility";
 import { useReadingPreferences } from "../../readingPreferences";
 import { normalizeRelaxedMarkdownHeadings } from "../../shared/manuscriptContent";
 import type { Manuscript, ManuscriptChapter } from "../../shared/types";
 import type { ManuscriptBookmark } from "../../shared/manuscriptBookmarks";
 import { captureBookmark, resolveBookmark } from "../../shared/manuscriptBookmarkPosition";
+import { positionedMarkdown } from "../../shared/manuscriptSourceMap";
+import { captureManuscriptViewport, restoreManuscriptViewport, type ManuscriptViewport } from "../../shared/manuscriptViewport";
 import ReadingAppearanceControls from "./ReadingAppearanceControls.vue";
 
 const props = defineProps<{
@@ -33,11 +36,13 @@ const props = defineProps<{
   manuscript: Manuscript;
   initialChapterId?: string;
   initialProgress?: number;
+  initialViewport?: ManuscriptViewport | null;
   editable?: boolean;
   transformChapter?: (chapter: ManuscriptChapter) => Promise<ManuscriptChapter>;
 }>();
 
-type ReaderPosition = { chapterId: string; progress: number };
+type ReaderPosition = { chapterId: string; progress: number; revision: number; viewport: ManuscriptViewport | null; unchanged: boolean };
+useAudioPlayerFocus(() => props.modelValue);
 
 const emit = defineEmits<{
   "update:modelValue": [value: boolean];
@@ -65,6 +70,20 @@ let chapterRequest = 0;
 let bookmarkIntent = 0;
 let correction: ResizeObserver | null = null;
 let correctionTimer: ReturnType<typeof setTimeout> | null = null;
+let viewportCorrection: ResizeObserver | null = null;
+let viewportCorrectionTimer: ReturnType<typeof setTimeout> | null = null;
+let readerMoved = false;
+let restoredReaderTop: number | null = null;
+
+function stopViewportCorrection() {
+  viewportCorrection?.disconnect(); viewportCorrection = null;
+  if (viewportCorrectionTimer) clearTimeout(viewportCorrectionTimer);
+  viewportCorrectionTimer = null;
+}
+function onReaderInteraction() {
+  readerMoved = true; stopViewportCorrection(); cancelBookmarkCorrection();
+  if (restoreTimer) clearTimeout(restoreTimer);
+}
 
 function cancelBookmarkCorrection() {
   bookmarkIntent++;
@@ -76,12 +95,15 @@ function cancelBookmarkCorrection() {
 function clearReader() {
   readerSession++; chapterRequest++;
   cancelBookmarkCorrection();
+  stopViewportCorrection(); readerMoved = false; restoredReaderTop = null;
   if (restoreTimer) clearTimeout(restoreTimer);
   if (scrollAnimationFrame) cancelAnimationFrame(scrollAnimationFrame);
   chapter.value = null; bookmarks.value = []; loading.value = false;
   bookmarkBusy.value = false; bookmarksLoading.value = false;
   unavailableBookmark.value = null; bookmarkMessage.value = "";
   renamingBookmark.value = ""; bookmarkName.value = "";
+  // Invalidate the cached rendered plaintext and source map on close/lock too.
+  void rendered.value;
 }
 
 function bookmarkLabel(bookmark: ManuscriptBookmark) {
@@ -102,6 +124,7 @@ async function refreshBookmarks() {
 
 async function addBookmark() {
   if (loading.value || bookmarksLoading.value || bookmarkBusy.value || !chapter.value || !bodyElement.value || !pane.value) return;
+  onReaderInteraction();
   const anchor = captureBookmark(bodyElement.value, pane.value, chapter.value.revision, chapter.value.contentFormat, props.manuscript.encryptionEnabled);
   if (!anchor) { bookmarkMessage.value = "Scroll to the text or image you want to bookmark."; return; }
   const session = readerSession;
@@ -178,7 +201,8 @@ const rendered = computed(() => {
   const source = chapter.value?.contentFormat === "markdown"
     ? normalizeRelaxedMarkdownHeadings(chapter.value?.body ?? "")
     : chapter.value?.body ?? "";
-  const parsed = String(marked.parse(source, { async: false, breaks: true, gfm: true }));
+  const positioned = chapter.value?.contentFormat === "markdown" ? positionedMarkdown(chapter.value.body) : null;
+  const parsed = positioned?.html ?? String(marked.parse(source, { async: false, breaks: true, gfm: true }));
   const documentNode = new DOMParser().parseFromString(`<main>${parsed}</main>`, "text/html");
   const main = documentNode.querySelector("main")!;
   const entries: Array<{ id: string; label: string; level: number }> = [];
@@ -200,11 +224,12 @@ const rendered = computed(() => {
         "h5", "h6", "hr", "i", "img", "li", "ol", "p", "pre", "s", "span", "strike", "strong", "table", "tbody",
         "td", "th", "thead", "tr", "u", "ul"
       ],
-      ALLOWED_ATTR: ["alt", "height", "href", "id", "src", "title", "width"],
+      ALLOWED_ATTR: ["alt", "height", "href", "id", "src", "title", "width", "data-manuscript-source"],
       ALLOW_DATA_ATTR: false,
       FORBID_ATTR: ["style"]
     }),
-    entries
+    entries,
+    positions: positioned?.positions
   };
 });
 
@@ -245,10 +270,12 @@ function restoreProgress(progress: number) {
   restoreTimer = setTimeout(apply, 120);
 }
 
-async function loadChapter(chapterId: string, progress = 0, bookmark?: ManuscriptBookmark) {
+async function loadChapter(chapterId: string, progress = 0, bookmark?: ManuscriptBookmark, viewport?: ManuscriptViewport | null) {
   if (!chapterId || !props.modelValue) return;
+  if (chapter.value) readerMoved = true;
   const request = ++chapterRequest;
   cancelBookmarkCorrection();
+  stopViewportCorrection();
   const intent = bookmarkIntent;
   if (restoreTimer) clearTimeout(restoreTimer);
   if (scrollAnimationFrame) cancelAnimationFrame(scrollAnimationFrame);
@@ -273,13 +300,29 @@ async function loadChapter(chapterId: string, progress = 0, bookmark?: Manuscrip
     await nextTick();
     requestAnimationFrame(() => {
       if (request !== chapterRequest || !props.modelValue) return;
-      if (bookmark) { if (intent === bookmarkIntent) applyBookmark(bookmark); } else restoreProgress(progress);
+      if (bookmark) { if (intent === bookmarkIntent) applyBookmark(bookmark); }
+      else if (viewport && (viewport.revision === undefined || viewport.revision === chapter.value?.revision) && viewport.format === chapter.value?.contentFormat && !readerMoved && bodyElement.value && pane.value) {
+        const apply = () => {
+          if (request === chapterRequest && props.modelValue && bodyElement.value && pane.value) {
+            restoreManuscriptViewport(bodyElement.value, pane.value, viewport, rendered.value.positions);
+            restoredReaderTop = pane.value.scrollTop;
+          }
+        };
+        apply();
+        viewportCorrection = new ResizeObserver(apply);
+        viewportCorrection.observe(bodyElement.value, { box: "border-box" }); viewportCorrection.observe(pane.value, { box: "border-box" });
+        viewportCorrectionTimer = setTimeout(stopViewportCorrection, 2500);
+      } else restoreProgress(viewport ? 0 : progress);
     });
   }
 }
 
 function readerPosition(): ReaderPosition | null {
-  return chapter.value ? { chapterId: chapter.value.chapterId, progress: currentProgress() } : null;
+  return chapter.value ? {
+    chapterId: chapter.value.chapterId, progress: currentProgress(), revision: chapter.value.revision,
+    viewport: bodyElement.value && pane.value ? captureManuscriptViewport(bodyElement.value, pane.value, chapter.value.contentFormat, rendered.value.positions) : null,
+    unchanged: !readerMoved && restoredReaderTop !== null && Math.abs((pane.value?.scrollTop ?? 0) - restoredReaderTop) < 1 && chapter.value.chapterId === props.initialChapterId
+  } : null;
 }
 function close() {
   const position = readerPosition();
@@ -301,10 +344,12 @@ async function showContents() {
   contentsHideButton.value?.focus();
 }
 function selectRelativeChapter(offset: -1 | 1) {
+  onReaderInteraction();
   const target = props.manuscript.chapters[chapterIndex.value + offset];
   if (target) void loadChapter(target.chapterId);
 }
 function selectHeading(id: string) {
+  onReaderInteraction();
   cancelBookmarkCorrection();
   activeHeadingId.value = id;
   const heading = document.getElementById(id);
@@ -349,7 +394,7 @@ function openLink(event: MouseEvent) {
   window.open(link.href, "_blank", "noopener,noreferrer");
 }
 function onKeydown(event: KeyboardEvent) {
-  if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) cancelBookmarkCorrection();
+  if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) onReaderInteraction();
   if (event.key === "Escape" && props.modelValue) close();
 }
 
@@ -361,7 +406,7 @@ watch(
     void refreshBookmarks();
     const target = props.manuscript.chapters.find((item) => item.chapterId === props.initialChapterId)
       ?? props.manuscript.chapters[0];
-    if (target) await loadChapter(target.chapterId, props.initialProgress ?? 0);
+    if (target) await loadChapter(target.chapterId, props.initialProgress ?? 0, undefined, props.initialViewport);
   }, { immediate: true }
 );
 
@@ -395,7 +440,7 @@ onBeforeUnmount(() => {
         <span>{{ preferences.fontSize }}</span>
         <button type="button" :disabled="preferences.fontSize >= 30" @click="preferences.fontSize++"><Plus /></button>
       </div>
-      <button v-if="editable" class="book-button book-button--label" type="button" @click="edit"><Edit3 /><span>Edit</span></button>
+      <button v-if="editable" class="book-button book-button--label" type="button" title="Edit this chapter" aria-label="Edit this chapter" @click="edit"><Edit3 /><span>Edit</span></button>
       <button class="book-button book-button--label" type="button" title="Bookmark this position" aria-label="Bookmark this position" :disabled="loading || bookmarksLoading || bookmarkBusy || !chapter" @click="addBookmark"><PlusCircle /><span>Bookmark</span></button>
       <button class="book-button" type="button" title="Show bookmarks" aria-label="Show bookmarks" @click="outlineTab = 'bookmarks'; contentsOpen = true"><Bookmark /></button>
       <button class="book-button book-button--label" :class="{ active: appearanceOpen }" type="button" @click="appearanceOpen = !appearanceOpen"><Palette /><span>Appearance</span></button>
@@ -481,7 +526,7 @@ onBeforeUnmount(() => {
         @click="showContents"
       ><PanelLeftOpen /><span>Contents</span></button>
 
-      <main ref="pane" class="book-page" @scroll.passive="onScroll" @wheel.passive="cancelBookmarkCorrection" @touchstart.passive="cancelBookmarkCorrection" @pointerdown="cancelBookmarkCorrection">
+      <main ref="pane" class="book-page" @scroll.passive="onScroll" @wheel.passive="onReaderInteraction" @touchstart.passive="onReaderInteraction" @pointerdown="onReaderInteraction">
         <div v-if="loading" class="book-loading"><LoaderCircle class="animate-spin" /> Loading chapter…</div>
         <div v-else-if="error" class="book-loading">{{ error }}</div>
         <article v-else class="book-article" @click="openLink">
