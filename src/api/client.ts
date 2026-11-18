@@ -184,8 +184,8 @@ export const client = {
     method: "POST", body: JSON.stringify({ currentPassword })
   }),
   endArchiveManagementAccess: () => api<{ verifiedUntil: null }>("/archive/management-access", { method: "DELETE" }),
-  login: (email: string, password: string) =>
-    api<{ user: PublicUser }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  login: (identifier: string, password: string) =>
+    api<{ user: PublicUser }>("/auth/login", { method: "POST", body: JSON.stringify({ email: identifier, username: identifier, password }) }),
   changePassword: (body: { currentPassword: string; newPassword: string; confirmPassword: string }) =>
     api<{ user: PublicUser }>("/auth/change-password", { method: "POST", body: JSON.stringify(body) }),
   logout: () => api<{ ok: true }>("/auth/logout", { method: "POST" }),
@@ -239,6 +239,8 @@ export const client = {
   myWork: (filters: MyWorkFilters = {}) =>
     api<MyWorkQueue>(`/my-work${toQuery(filters as Record<string, string | undefined>)}`),
   users: () => api<PublicUser[]>("/users"),
+  createArchiveUser: (body: { username: string; name: string; role: "Staff" | "ReadOnly"; password: string; currentPassword: string }) =>
+    api<{ user: PublicUser }>("/archive/users", { method: "POST", body: JSON.stringify(body) }),
   gmailExtensionTokens: () => api<GmailExtensionToken[]>("/integrations/gmail-extension/tokens"),
   createGmailExtensionToken: (body: { name: string; scopes?: GmailExtensionTokenScope[] }) =>
     api<GmailExtensionTokenCreateResult>("/integrations/gmail-extension/tokens", { method: "POST", body: JSON.stringify(body) }),

@@ -58,6 +58,7 @@ import type {
   PaginationParams,
   PartyOrganization,
   PublicUser,
+  User,
   PrivateVaultPasswordMetadata,
   SearchCredentialMatch,
   SearchResult,
@@ -192,6 +193,7 @@ function withoutCreatedAt(user: (typeof demoUsers)[number]): PublicUser {
     userId: user.userId,
     name: user.name,
     email: user.email,
+    username: (user as PublicUser).username ?? null,
     role: user.role,
     createdAt: user.createdAt,
     tenantId: DEFAULT_TENANT_ID,
@@ -458,6 +460,11 @@ export class DemoRepository implements AppRepository {
     return user ? withoutCreatedAt(user) : null;
   }
 
+  async getUserByUsername(username: string): Promise<PublicUser | null> {
+    const user = this.users.find((item) => (item as PublicUser).username?.toLowerCase() === username.toLowerCase());
+    return user ? withoutCreatedAt(user) : null;
+  }
+
   async getUserById(userId: string): Promise<PublicUser | null> {
     const user = this.users.find((item) => item.userId === userId);
     return user ? withoutCreatedAt(user) : null;
@@ -465,6 +472,17 @@ export class DemoRepository implements AppRepository {
 
   async listUsers(): Promise<PublicUser[]> {
     return this.users.filter((user) => user.email.toLowerCase() !== SYSTEM_AUDIT_USER_EMAIL).map(withoutCreatedAt);
+  }
+
+  async createArchiveUser(input: { username: string; name: string; role: "Staff" | "ReadOnly"; credential: UserCredential; actorUserId: string }): Promise<PublicUser | null> {
+    if (!this.users.some((user) => user.userId === input.actorUserId && user.role === "Admin")
+      || this.users.some((user) => user.username?.toLowerCase() === input.username.toLowerCase()
+        || user.email.toLowerCase() === `${input.username}@accounts.invalid`)) return null;
+    const user: User = { userId: crypto.randomUUID(), name: input.name, email: `${input.username}@accounts.invalid`,
+      username: input.username, role: input.role, createdAt: nowIso() };
+    this.users.push(user);
+    this.credentials.set(user.userId, input.credential);
+    return withoutCreatedAt(user);
   }
 
   async getUserCredential(userId: string): Promise<UserCredential | null> {

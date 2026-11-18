@@ -5,24 +5,31 @@ import { AdminInitializationError, initializeAdmin } from "../src/server/auth/in
 import { readMigrations } from "../src/server/services/schemaMigrations.ts";
 
 const help = `Initialize the first Personal Archive administrator on a migrated, empty instance.
-Usage: node dist-server/init-admin.mjs --email owner@example.org [--name "Archive Owner"]
+Usage: node dist-server/init-admin.mjs --username alen [--name "Archive Owner"]
+       Legacy installations may still use --email owner@example.org.
+       --bootstrap-default creates admin with a temporary 123456 password.
        Add --password-stdin to read one password line from a secret manager or protected pipe.
 Requires BUSINESS_TEMPLATE=personal-archive and DATABASE_URL; DATABASE_SSL defaults to require.
 The default terminal prompt hides password input and asks for confirmation.
 Passwords are never accepted as arguments or from PASSWORD. Existing accounts are never reset.`;
 
 function options(args) {
-  const result = { name: "Archive Owner", email: "", stdin: false };
+  const result = { name: "Archive Owner", email: "", username: "", stdin: false, bootstrapDefault: false };
   const seen = new Set();
   for (let i = 0; i < args.length; i += 1) {
     const flag = args[i];
     if (seen.has(flag)) throw new AdminInitializationError("Duplicate argument. Use --help.");
     seen.add(flag);
     if (flag === "--password-stdin") result.stdin = true;
-    else if (["--email", "--name"].includes(flag) && args[i + 1] && !args[i + 1].startsWith("--")) result[flag.slice(2)] = args[++i];
+    else if (flag === "--bootstrap-default") result.bootstrapDefault = true;
+    else if (["--email", "--username", "--name"].includes(flag) && args[i + 1] && !args[i + 1].startsWith("--")) result[flag.slice(2)] = args[++i];
     else throw new AdminInitializationError("Unknown or incomplete argument. Use --help.");
   }
-  if (!result.email) throw new AdminInitializationError("--email is required. Use --help.");
+  if (result.bootstrapDefault) {
+    if (result.email || result.username || result.stdin) throw new AdminInitializationError("--bootstrap-default takes no account or password arguments.");
+    result.username = "admin";
+    result.name = "Administrator";
+  } else if (Boolean(result.email) === Boolean(result.username)) throw new AdminInitializationError("Supply exactly one of --username or --email.");
   return result;
 }
 
@@ -70,11 +77,13 @@ try {
     }
     if (process.env.PASSWORD !== undefined) throw new AdminInitializationError("Remove PASSWORD from the environment; use the hidden prompt or --password-stdin.");
     const migrations = await readMigrations("migrations");
-    const password = input.stdin ? await readPasswordFromPipe() : await promptPassword();
+    const password = input.bootstrapDefault ? "123456" : input.stdin ? await readPasswordFromPipe() : await promptPassword();
     const ssl = (process.env.DATABASE_SSL ?? "require").toLowerCase();
     sql = postgres(process.env.DATABASE_URL, { max: 1, connect_timeout: 10, ssl: ["false", "disable"].includes(ssl) ? false : "require", onnotice: () => {} });
     await initializeAdmin(sql, { ...input, password }, migrations);
-    console.log("First administrator created. You can now sign in with the email and password you supplied.");
+    console.log(input.bootstrapDefault
+      ? "First administrator created as admin. Sign in with temporary password 123456 and change it immediately."
+      : "First administrator created. Sign in with the username (or legacy email) and password you supplied.");
   }
 } catch (error) {
   console.error(error instanceof AdminInitializationError ? error.message : "Initialization failed. Check database access and run this release's migrations first. No partial account was created.");

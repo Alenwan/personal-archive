@@ -232,6 +232,7 @@ function mapUser(row: Row): PublicUser {
     userId: asString(row.user_id),
     name: asString(row.name),
     email: asString(row.email),
+    username: row.username ? asString(row.username) : null,
     role: asString(row.role) as PublicUser["role"],
     createdAt: asString(row.created_at),
     tenantId: row.tenant_id || row.organization_id ? asString(row.tenant_id ?? row.organization_id) : null,
@@ -1212,7 +1213,7 @@ export class PostgresRepository implements AppRepository {
 
   async getUserByEmail(email: string): Promise<PublicUser | null> {
     const rows = await this.sql`
-      select u.user_id, u.name, u.email, u.role, u.created_at, u.organization_id as tenant_id,
+      select u.user_id, u.name, u.email, u.username, u.role, u.created_at, u.organization_id as tenant_id,
         coalesce(uc.must_change_password, false) as must_change_password
       from users u
       left join user_credentials uc on uc.user_id = u.user_id
@@ -1222,9 +1223,21 @@ export class PostgresRepository implements AppRepository {
     return rows[0] ? mapUser(rows[0] as Row) : null;
   }
 
+  async getUserByUsername(username: string): Promise<PublicUser | null> {
+    const rows = await this.sql`
+      select u.user_id, u.name, u.email, u.username, u.role, u.created_at, u.organization_id as tenant_id,
+        coalesce(uc.must_change_password, false) as must_change_password
+      from users u
+      left join user_credentials uc on uc.user_id = u.user_id
+      where lower(u.username) = lower(${username})
+      limit 1
+    `;
+    return rows[0] ? mapUser(rows[0] as Row) : null;
+  }
+
   async getUserById(userId: string): Promise<PublicUser | null> {
     const rows = await this.sql`
-      select u.user_id, u.name, u.email, u.role, u.created_at, u.organization_id as tenant_id,
+      select u.user_id, u.name, u.email, u.username, u.role, u.created_at, u.organization_id as tenant_id,
         coalesce(uc.must_change_password, false) as must_change_password
       from users u
       left join user_credentials uc on uc.user_id = u.user_id
@@ -1236,7 +1249,7 @@ export class PostgresRepository implements AppRepository {
 
   async listUsers(): Promise<PublicUser[]> {
     const rows = await this.sql`
-      select u.user_id, u.name, u.email, u.role, u.created_at, u.organization_id as tenant_id,
+      select u.user_id, u.name, u.email, u.username, u.role, u.created_at, u.organization_id as tenant_id,
         coalesce(uc.must_change_password, false) as must_change_password
       from users u
       left join user_credentials uc on uc.user_id = u.user_id
@@ -1244,6 +1257,29 @@ export class PostgresRepository implements AppRepository {
       order by u.role, u.name
     `;
     return rows.map((row) => mapUser(row as Row));
+  }
+
+  async createArchiveUser(input: { username: string; name: string; role: "Staff" | "ReadOnly"; credential: UserCredential; actorUserId: string }): Promise<PublicUser | null> {
+    const userId = await this.sql.begin(async (tx) => {
+      await tx`set local lock_timeout = '5s'`;
+      await tx`lock table users, user_credentials in share row exclusive mode`;
+      const [actor] = await tx`select user_id from users where user_id = ${input.actorUserId} and role = 'Admin'`;
+      if (!actor) return null;
+      const email = `${input.username}@accounts.invalid`;
+      const [existing] = await tx`select user_id from users
+        where lower(username) = ${input.username} or lower(email) = ${email} limit 1`;
+      if (existing) return null;
+      const [created] = await tx`insert into users (name, email, username, role)
+        values (${input.name}, ${email}, ${input.username}, ${input.role}) returning user_id`;
+      await tx`insert into user_credentials (user_id, password_hash, password_salt, password_algorithm,
+        password_iterations, must_change_password, temporary_password_issued_at, failed_login_count, updated_at)
+        values (${created.user_id}, ${input.credential.passwordHash}, ${input.credential.passwordSalt},
+          ${input.credential.passwordAlgorithm}, ${input.credential.passwordIterations}, true, now(), 0, now())`;
+      await tx`insert into audit_logs (action, entity_type, entity_id, user_id, metadata)
+        values ('CreateUser', 'User', ${created.user_id}, ${input.actorUserId}, '{"source":"settings"}'::jsonb)`;
+      return created.user_id as string;
+    });
+    return userId ? this.getUserById(userId) : null;
   }
 
   async getUserCredential(userId: string): Promise<UserCredential | null> {
@@ -1364,7 +1400,7 @@ export class PostgresRepository implements AppRepository {
 
   async getUserBySessionTokenHash(tokenHash: string, refreshExpiresAt?: string): Promise<PublicUser | null> {
     const rows = await this.sql`
-      select u.user_id, u.name, u.email, u.role, u.created_at, s.last_seen_at,
+      select u.user_id, u.name, u.email, u.username, u.role, u.created_at, s.last_seen_at,
         coalesce(s.current_tenant_id, u.organization_id) as tenant_id,
         coalesce(uc.must_change_password, false) as must_change_password
       from auth_sessions s
