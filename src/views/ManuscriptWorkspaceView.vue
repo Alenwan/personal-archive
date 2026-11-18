@@ -83,11 +83,18 @@ import {
   type ManuscriptOutlineEntry
 } from "../shared/manuscriptContent";
 import { countTextCharacters, plainTextFromRichText } from "../shared/textMetrics";
-import { scrollTextareaOffsetIntoView } from "../shared/textareaPosition";
+import { captureTextareaViewport, restoreTextareaViewport, scrollTextareaOffsetIntoView } from "../shared/textareaPosition";
+import { captureEditorScroll, restoreEditorScroll, type EditorScrollSnapshot } from "../shared/editorScrollSnapshot";
+import type { ManuscriptViewport } from "../shared/manuscriptViewport";
 import { buildManuscriptExport } from "../server/services/manuscriptExport";
 
 type EditorHandle = {
   focus: () => void;
+  captureViewport: () => EditorScrollSnapshot | null;
+  restoreViewport: (snapshot: EditorScrollSnapshot) => void;
+  captureContentViewport: () => ManuscriptViewport | null;
+  restoreContentViewport: (anchor: ManuscriptViewport) => void;
+  viewportElement: () => HTMLElement | null;
   getScrollProgress: () => number;
   restoreScrollProgress: (progress: number) => void;
   scrollToHeading: (index: number) => boolean;
@@ -142,6 +149,10 @@ const versionLoadingId = ref("");
 const restoringVersionId = ref("");
 const readerOpen = ref(false);
 const readerInitialProgress = ref(0);
+const readerInitialViewport = shallowRef<ManuscriptViewport | null>(null);
+let editorBeforeReading: { chapterId: string; revision: number; snapshot: EditorScrollSnapshot; width: number; height: number; layout: string } | null = null;
+let cancelPositionRestore: (() => void) | null = null;
+let disposed = false;
 const encryptionKey = shallowRef<ManuscriptWorkKey | null>(null);
 const unlockSecret = ref("");
 const unlocking = ref(false);
@@ -569,6 +580,7 @@ async function restoreEditorProgress(progress: number) {
 }
 
 async function loadChapter(chapterId: string, saveCurrent = true, targetProgress?: number, force = false) {
+  cancelPositionRestore?.();
   if (chapterLoading.value) return;
   if (chapterId === activeChapterId.value && !force) {
     if (targetProgress !== undefined) await restoreEditorProgress(targetProgress);
@@ -697,15 +709,62 @@ async function retrySaveAfterSignIn() {
   }
 }
 
+function editorLayoutKey() {
+  const element = markdownEditor.value ?? editor.value?.viewportElement();
+  if (!element) return "";
+  const style = getComputedStyle(element);
+  return JSON.stringify([element.clientWidth, element.clientHeight, element.scrollHeight, style.fontFamily, style.fontSize, style.fontWeight, style.lineHeight, style.letterSpacing, style.padding, style.wordBreak, style.whiteSpace]);
+}
+
 async function openReader() {
+  if (chapterLoading.value || !activeChapter.value || readerOpen.value) return;
+  const chapterId = activeChapterId.value, key = encryptionKey.value;
+  const layout = editorLayoutKey();
   readerInitialProgress.value = editorProgress();
+  readerInitialViewport.value = chapterFormat.value === "markdown" && markdownEditor.value
+    ? captureTextareaViewport(markdownEditor.value) : editor.value?.captureContentViewport() ?? null;
+  const snapshot = chapterFormat.value === "markdown" && markdownEditor.value
+    ? captureEditorScroll(markdownEditor.value) : editor.value?.captureViewport();
   if (!(await saveChapterNow())) return;
+  if (disposed || activeChapterId.value !== chapterId || encryptionKey.value !== key || encryptionLocked.value) { readerInitialViewport.value = null; return; }
+  if (readerInitialViewport.value) readerInitialViewport.value = { ...readerInitialViewport.value, revision: activeChapterRevision };
+  editorBeforeReading = snapshot ? { chapterId: activeChapterId.value, revision: activeChapterRevision, snapshot, width: innerWidth, height: innerHeight, layout } : null;
+  cancelPositionRestore?.();
   readerOpen.value = true;
 }
 
-async function returnToEditor(position: { chapterId: string; progress: number }) {
+async function returnToEditor(position: { chapterId: string; progress: number; revision: number; viewport: ManuscriptViewport | null; unchanged: boolean }) {
+  const original = editorBeforeReading;
+  const anchor = position.unchanged ? readerInitialViewport.value : position.viewport;
   readerOpen.value = false;
-  await loadChapter(position.chapterId, true, position.progress);
+  editorBeforeReading = null; readerInitialViewport.value = null;
+  await loadChapter(position.chapterId, true, undefined, position.revision !== activeChapterRevision);
+  await nextTick();
+  if (position.chapterId !== activeChapterId.value || position.revision !== activeChapterRevision || encryptionLocked.value) return;
+  cancelPositionRestore?.();
+  let cancelled = false;
+  const apply = () => {
+    if (cancelled || disposed || readerOpen.value || activeChapterId.value !== position.chapterId || encryptionLocked.value) return;
+    if (position.unchanged && original?.chapterId === position.chapterId && original.revision === position.revision && original.width === innerWidth && original.height === innerHeight && original.layout === editorLayoutKey()) {
+      if (chapterFormat.value === "markdown" && markdownEditor.value) restoreEditorScroll(markdownEditor.value, original.snapshot);
+      else editor.value?.restoreViewport(original.snapshot);
+    } else if (anchor && anchor.format === chapterFormat.value) {
+      if (chapterFormat.value === "markdown" && markdownEditor.value) restoreTextareaViewport(markdownEditor.value, anchor);
+      else editor.value?.restoreContentViewport(anchor);
+    }
+  };
+  const stop = () => {
+    cancelled = true; observer.disconnect(); clearTimeout(timer);
+    for (const event of ["wheel", "touchstart", "pointerdown", "keydown", "input"]) window.removeEventListener(event, stop, true);
+  };
+  const observer = new ResizeObserver(apply);
+  const timer = setTimeout(stop, 2500);
+  const element = markdownEditor.value ?? editor.value?.viewportElement();
+  if (element) observer.observe(element);
+  for (const event of ["wheel", "touchstart", "pointerdown", "keydown", "input"]) window.addEventListener(event, stop, { capture: true, passive: true });
+  cancelPositionRestore = stop;
+  requestAnimationFrame(apply);
+  void document.fonts?.ready.then(apply);
 }
 
 function queueAutosave() {
@@ -1139,6 +1198,7 @@ async function lockEncryptedWork(reason: "manual" | "idle" = "manual") {
   if (!saved && !pendingRecoveryDraft.value) await persistLocalDraft();
   preferredEncryptedChapterId = activeChapterId.value || preferredEncryptedChapterId;
   readerOpen.value = false;
+  readerInitialViewport.value = null; editorBeforeReading = null; cancelPositionRestore?.();
   selectedVersion.value = null;
   activeChapter.value = null;
   activeChapterId.value = "";
@@ -1508,6 +1568,8 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  disposed = true;
+  readerInitialViewport.value = null; editorBeforeReading = null; cancelPositionRestore?.();
   clearAutosaveTimers();
   cancelBodyAnalysis();
   cancelLocalDraftIdle();
@@ -1868,6 +1930,7 @@ onBeforeRouteLeave(async () => {
         :manuscript="manuscript"
         :initial-chapter-id="activeChapterId"
         :initial-progress="readerInitialProgress"
+        :initial-viewport="readerInitialViewport"
         :editable="canEdit"
         :transform-chapter="decryptReaderChapterBody"
         @close="returnToEditor"

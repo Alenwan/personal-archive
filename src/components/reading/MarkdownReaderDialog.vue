@@ -4,6 +4,7 @@ import { Edit3, ListTree, Minus, Palette, PanelLeftClose, PanelLeftOpen, Plus, X
 import { marked } from "marked";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useReaderContentsVisibility } from "../../composables/useReaderContentsVisibility";
+import { useAudioPlayerFocus } from "../../composables/useAudioPlayerFocus";
 import { useReadingPreferences } from "../../readingPreferences";
 import ReadingAppearanceControls from "./ReadingAppearanceControls.vue";
 
@@ -15,6 +16,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{ "update:modelValue": [value: boolean]; edit: [] }>();
+useAudioPlayerFocus(() => props.modelValue);
 const appearanceOpen = ref(false);
 const activeId = ref("");
 const pane = ref<HTMLElement | null>(null);

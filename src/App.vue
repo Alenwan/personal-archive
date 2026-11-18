@@ -39,6 +39,7 @@ import ToastStack from "./components/ToastStack.vue";
 import { useI18n } from "./i18n";
 import { useAuthStore } from "./stores/auth";
 import { useArchiveAudioPlayerStore } from "./stores/archiveAudioPlayer";
+import { useAudioPlayerPresentationStore } from "./stores/audioPlayerPresentation";
 import { useToastStore } from "./stores/toasts";
 import type { SearchCredentialMatch, SearchQuickValue, SearchResult } from "./shared/types";
 import { useUiPreferences } from "./uiPreferences";
@@ -47,6 +48,7 @@ import { useReadingPreferences } from "./readingPreferences";
 
 const auth = useAuthStore();
 const archiveAudio = useArchiveAudioPlayerStore();
+const audioPresentation = useAudioPlayerPresentationStore();
 const toasts = useToastStore();
 const route = useRoute();
 const router = useRouter();
@@ -91,11 +93,11 @@ const globalSearchClass = computed(() => {
     : "lg:left-6 lg:w-[min(42rem,calc(100vw-3rem))]";
 });
 
-const archiveAudioPlayerClass = computed(() => {
-  if (!navigationOpen.value) return "lg:left-3";
-  if (uiStyle.value === "editorial") return "lg:left-[16.25rem]";
-  if (uiStyle.value === "gallery") return "lg:left-[14.75rem]";
-  return "lg:left-[15.75rem]";
+const archiveAudioPlayerStyle = computed(() => {
+  const left = !navigationOpen.value ? "0.75rem"
+    : uiStyle.value === "editorial" ? "16.25rem"
+    : uiStyle.value === "gallery" ? "14.75rem" : "15.75rem";
+  return { "--archive-player-desktop-left": left };
 });
 
 const manuscriptAppearanceStyle = computed(() => {
@@ -731,7 +733,7 @@ function openCredentialResult(result: SearchResult, credential: SearchCredential
           template.personalArchive ? 'personal-main' : '',
           template.personalArchive && !navigationOpen ? 'personal-main--navigation-collapsed' : '',
           route.name === 'manuscript-workspace' ? 'manuscript-main' : '',
-          archiveAudio.visible ? '!pb-56 sm:!pb-40 lg:!pb-32' : ''
+          archiveAudio.visible ? (audioPresentation.collapsed ? '!pb-20' : '!pb-56 sm:!pb-40 lg:!pb-32') : ''
         ]"
       >
         <RouterView />
@@ -739,7 +741,7 @@ function openCredentialResult(result: SearchResult, credential: SearchCredential
     </div>
     <ArchiveAudioPlayer
       v-if="template.personalArchive && auth.isAuthenticated"
-      :class="archiveAudioPlayerClass"
+      :style="archiveAudioPlayerStyle"
     />
   </div>
 </template>

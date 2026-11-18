@@ -23,6 +23,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useReadingPreferences } from "../../readingPreferences";
 import { isRichTextHtml, RICH_TEXT_TAGS } from "../../shared/richTextContent";
 import ReadingAppearanceControls from "../reading/ReadingAppearanceControls.vue";
+import { captureEditorScroll, restoreEditorScroll, type EditorScrollSnapshot } from "../../shared/editorScrollSnapshot";
+import { captureManuscriptViewport, restoreManuscriptViewport, type ManuscriptViewport } from "../../shared/manuscriptViewport";
 
 const props = withDefaults(
   defineProps<{
@@ -223,6 +225,19 @@ function focus() {
   editor.value?.focus();
 }
 
+function captureViewport() {
+  return editor.value ? captureEditorScroll(editor.value) : null;
+}
+function restoreViewport(snapshot: EditorScrollSnapshot) {
+  if (editor.value) restoreEditorScroll(editor.value, snapshot);
+}
+function captureContentViewport() {
+  return editor.value ? captureManuscriptViewport(editor.value, editor.value, "rich-text") : null;
+}
+function restoreContentViewport(anchor: ManuscriptViewport) {
+  if (editor.value) restoreManuscriptViewport(editor.value, editor.value, anchor);
+}
+
 function clampProgress(value: number) {
   return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
 }
@@ -331,7 +346,7 @@ onBeforeUnmount(() => {
   for (const url of previewUrls) URL.revokeObjectURL(url);
 });
 
-defineExpose({ focus, getScrollProgress, restoreScrollProgress, scrollToHeading, replaceInlineImage, removeInlineImage });
+defineExpose({ focus, captureViewport, restoreViewport, captureContentViewport, restoreContentViewport, viewportElement: () => editor.value, getScrollProgress, restoreScrollProgress, scrollToHeading, replaceInlineImage, removeInlineImage });
 </script>
 
 <template>

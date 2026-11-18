@@ -49,7 +49,10 @@ import {
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { client } from "../api/client";
+import { downloadBlob } from "../shared/mobileFileSave";
 import { useResizablePanel } from "../composables/useResizablePanel";
+import { useAudioPlayerFocus } from "../composables/useAudioPlayerFocus";
+import { useImageFullscreen } from "../composables/useImageFullscreen";
 import {
   createPrivateVaultEncryption,
   createPrivateVaultPasswordMetadata,
@@ -174,6 +177,7 @@ const folderInput = ref<HTMLInputElement | null>(null);
 const uploading = ref(false);
 const uploadStatus = ref<{ name: string; index: number; total: number; progress: number } | null>(null);
 const previewItem = ref<DisplayVaultItem | null>(null);
+useAudioPlayerFocus(() => Boolean(previewItem.value));
 const previewKind = ref<PreviewKind>("download");
 const previewUrl = ref("");
 const previewText = ref("");
@@ -187,7 +191,7 @@ const previewImageNaturalWidth = ref(0);
 const previewImageNaturalHeight = ref(0);
 const previewImageScale = ref(1);
 const previewImageMode = ref<"width" | "fit" | "custom">("width");
-const previewFullscreen = ref(false);
+const { fullscreen: previewFullscreen, toggleFullscreen: togglePreviewFullscreen, exitFullscreen: exitPreviewFullscreen } = useImageFullscreen(previewDialog);
 const editItem = ref<DisplayVaultItem | null>(null);
 const editFileName = ref("");
 const editFolderId = ref<string | null>(null);
@@ -251,6 +255,7 @@ let countdownTimer: ReturnType<typeof setInterval> | null = null;
 let autoLockDeadline = 0;
 let previewRequestVersion = 0;
 let previewControlsTimer: ReturnType<typeof setTimeout> | null = null;
+const previewKeyboardControls = ref(false);
 let moveUndoTimer: ReturnType<typeof setTimeout> | null = null;
 const PRIVATE_VAULT_METADATA_BATCH_SIZE = 500;
 
@@ -695,6 +700,11 @@ function registerActivity() {
 
 function onWindowKeydown(event: KeyboardEvent) {
   registerActivity();
+  if (event.key === "Escape" && previewFullscreen.value) {
+    event.preventDefault();
+    void exitPreviewFullscreen();
+    return;
+  }
   if (previewItem.value && previewKind.value === "image" && !isFormControl(event.target)) {
     if (event.key === "ArrowLeft" && previewPreviousImage.value) {
       event.preventDefault();
@@ -787,26 +797,31 @@ function clearPreviewControlsTimer() {
 
 function hidePreviewControls() {
   clearPreviewControlsTimer();
+  if (previewFullscreen.value && document.activeElement?.closest(".vault-preview header, .vault-preview-nav")) {
+    previewDialog.value?.querySelector<HTMLButtonElement>(".vault-preview-tools-handle")?.focus({ preventScroll: true });
+  }
   previewControlsVisible.value = false;
 }
 
 function keepPreviewControlsVisible() {
   clearPreviewControlsTimer();
-  if (previewKind.value === "image" && previewImageSequence.value.length > 1) {
+  if (previewKind.value === "image") {
     previewControlsVisible.value = true;
   }
 }
 
 function revealPreviewControls() {
   clearPreviewControlsTimer();
-  if (previewKind.value !== "image" || previewImageSequence.value.length <= 1) {
+  if (previewKind.value !== "image") {
     previewControlsVisible.value = false;
     return;
   }
+  // Reading/panning must not continually bring the fullscreen chrome back.
+  if (previewFullscreen.value && !previewControlsVisible.value) return;
   previewControlsVisible.value = true;
   previewControlsTimer = setTimeout(() => {
-    previewControlsVisible.value = false;
-    previewControlsTimer = null;
+    if (previewKeyboardControls.value && previewDialog.value?.querySelector("header:focus-within, .vault-preview-nav:focus-visible")) return;
+    hidePreviewControls();
   }, 1300);
 }
 
@@ -815,7 +830,8 @@ const MAX_PREVIEW_IMAGE_SCALE = 8;
 const PREVIEW_SCROLL_LOCK_CLASS = "private-vault-preview-open";
 
 function clampPreviewImageScale(value: number) {
-  return Math.min(MAX_PREVIEW_IMAGE_SCALE, Math.max(MIN_PREVIEW_IMAGE_SCALE, value));
+  const fit = previewFitScale("fit");
+  return Math.min(Math.max(MAX_PREVIEW_IMAGE_SCALE, fit), Math.max(Math.min(MIN_PREVIEW_IMAGE_SCALE, fit), value));
 }
 
 function lockPreviewPageScroll(locked: boolean) {
@@ -836,11 +852,15 @@ function resetPreviewImageState(preserveView = false) {
 function previewFitScale(mode: "width" | "fit") {
   const scroller = previewImageScroller.value;
   if (!scroller || !previewImageNaturalWidth.value || !previewImageNaturalHeight.value) return 1;
-  const availableWidth = Math.max(1, scroller.clientWidth - 32);
-  const availableHeight = Math.max(1, scroller.clientHeight - 32);
+  const padding = previewFullscreen.value ? 0 : 8;
+  // Fit removes overflow, so do not reserve space for scrollbars that will
+  // disappear after leaving actual-size/zoomed mode.
+  const bounds = scroller.getBoundingClientRect();
+  const availableWidth = Math.max(1, (mode === "fit" ? bounds.width : scroller.clientWidth) - padding);
+  const availableHeight = Math.max(1, bounds.height - padding);
   const widthScale = availableWidth / previewImageNaturalWidth.value;
   if (mode === "width") return Math.min(1, widthScale);
-  return Math.min(1, widthScale, availableHeight / previewImageNaturalHeight.value);
+  return Math.min(widthScale, availableHeight / previewImageNaturalHeight.value);
 }
 
 function applyPreviewImageScale(nextScale: number, preserveCenter = true) {
@@ -941,24 +961,18 @@ function togglePreviewImageSize() {
   else showPreviewImageActualSize();
 }
 
-async function togglePreviewFullscreen() {
-  const dialog = previewDialog.value;
-  if (!dialog) return;
-  try {
-    if (document.fullscreenElement === dialog) await document.exitFullscreen();
-    else await dialog.requestFullscreen();
-  } catch (error) {
-    toasts.error("Full screen unavailable", error instanceof Error ? error.message : "The browser did not allow full screen mode.");
-  }
-}
-
 function onPreviewFullscreenChange() {
-  previewFullscreen.value = document.fullscreenElement === previewDialog.value;
+  if (previewFullscreen.value) {
+    previewImageMode.value = "fit";
+    hidePreviewControls();
+    void nextTick(() => previewDialog.value?.querySelector<HTMLButtonElement>(".vault-preview-tools-handle")?.focus({ preventScroll: true }));
+  }
   void nextTick(() => {
     if (previewImageMode.value === "width") fitPreviewImageToWidth();
     else if (previewImageMode.value === "fit") fitPreviewImageToWindow();
   });
 }
+watch(previewFullscreen, onPreviewFullscreenChange, { flush: "post" });
 
 function onPreviewWindowResize() {
   if (previewKind.value !== "image") return;
@@ -967,7 +981,7 @@ function onPreviewWindowResize() {
 }
 
 function dismissPreview() {
-  if (document.fullscreenElement === previewDialog.value) void document.exitFullscreen().catch(() => undefined);
+  void exitPreviewFullscreen().catch(() => undefined);
   releasePreviewContent();
   hidePreviewControls();
   resetPreviewImageState();
@@ -1820,14 +1834,11 @@ async function showAdjacentImage(direction: -1 | 1) {
 
 async function downloadItem(item: DisplayVaultItem) {
   if (!item.metadata) return;
+  const downloadKey = vaultKey.value;
   try {
     const blob = await decryptedBlob(item);
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = item.metadata.fileName;
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if (!downloadKey || vaultKey.value !== downloadKey) return;
+    downloadBlob(blob, item.metadata.fileName);
   } catch (error) {
     toasts.error("Download failed", error instanceof Error ? error.message : "Unable to decrypt the file.");
   }
@@ -2100,7 +2111,6 @@ onMounted(() => {
   window.addEventListener("keydown", onWindowKeydown);
   window.addEventListener("resize", onPreviewWindowResize);
   window.addEventListener("click", closeContextMenu);
-  document.addEventListener("fullscreenchange", onPreviewFullscreenChange);
 });
 
 onBeforeUnmount(() => {
@@ -2110,7 +2120,6 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", onWindowKeydown);
   window.removeEventListener("resize", onPreviewWindowResize);
   window.removeEventListener("click", closeContextMenu);
-  document.removeEventListener("fullscreenchange", onPreviewFullscreenChange);
   if (moveUndoTimer) clearTimeout(moveUndoTimer);
   clearPreviewControlsTimer();
   lockVault(false);
@@ -2688,11 +2697,19 @@ onBeforeUnmount(() => {
     @wheel.self.prevent
     @touchmove.self.prevent
   >
-    <section ref="previewDialog" class="vault-preview" role="dialog" aria-modal="true" :aria-label="previewItem.metadata?.fileName">
-      <header>
+    <section ref="previewDialog" class="vault-preview"
+      :class="{ 'is-image-viewer': previewKind === 'image', 'is-fullscreen': previewFullscreen, 'controls-hidden': previewFullscreen && !previewControlsVisible }"
+      @pointerdown="previewKeyboardControls = false" @keydown="previewKeyboardControls = true"
+      role="dialog" aria-modal="true" :aria-label="previewItem.metadata?.fileName">
+      <div v-if="previewFullscreen && previewKind === 'image'" class="vault-preview-dock">
+        <button class="vault-preview-tools-handle" type="button" aria-label="Show image tools" :aria-expanded="previewControlsVisible"
+          @click="keepPreviewControlsVisible" @pointerenter="keepPreviewControlsVisible" @pointerleave="revealPreviewControls">⌄ Tools</button>
+        <button type="button" aria-label="Leave full screen" title="Exit full screen (F)" @click="exitPreviewFullscreen"><Minimize2 /></button>
+      </div>
+      <header @pointerenter="keepPreviewControlsVisible" @pointerleave="revealPreviewControls" @focusin="keepPreviewControlsVisible" @focusout="revealPreviewControls">
         <div class="vault-preview-heading">
           <p class="vault-eyebrow"><ShieldCheck /> DECRYPTED PREVIEW</p>
-          <h2>{{ previewItem.metadata?.fileName }}</h2>
+          <h2 :title="previewItem.metadata?.fileName">{{ previewItem.metadata?.fileName }}</h2>
         </div>
         <div v-if="previewKind === 'image'" class="vault-preview-toolbar" role="toolbar" aria-label="Image controls">
           <button type="button" title="Zoom out (−)" aria-label="Zoom out" :disabled="previewLoading" @click="zoomPreviewImage(1 / 1.25)"><ZoomOut /></button>
@@ -2713,8 +2730,8 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div class="vault-preview-actions">
-          <button type="button" title="Download" @click="downloadItem(previewItem)"><Download /></button>
-          <button type="button" title="Close" @click="closePreview"><X /></button>
+          <button type="button" title="Download" aria-label="Download original" @click="downloadItem(previewItem)"><Download /></button>
+          <button type="button" title="Close" aria-label="Close private preview" @click="closePreview"><X /></button>
         </div>
       </header>
       <div
@@ -3400,7 +3417,7 @@ onBeforeUnmount(() => {
 .vault-preview-body.is-image-preview { overflow: hidden; }
 .vault-preview-body.is-video-preview { overflow: hidden; background: #050706; }
 .vault-preview-video-stage .vault-preview-message { width: 100%; height: 100%; }
-.vault-preview-image-scroll { width: 100%; height: 100%; min-height: 0; display: flex; align-items: safe center; justify-content: safe center; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable both-edges; touch-action: pan-x pan-y; }
+.vault-preview-image-scroll { width: 100%; height: 100%; min-height: 0; display: flex; align-items: safe center; justify-content: safe center; overflow: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; }
 .vault-preview-body.is-image-preview img { max-width: none; max-height: none; flex: none; object-fit: contain; user-select: none; animation: vault-preview-image-arrive 160ms ease-out both; }
 .vault-preview-nav { width: 2.85rem; height: 2.85rem; display: grid; place-items: center; position: absolute; z-index: 2; top: 50%; border: 1px solid color-mix(in srgb, var(--vault-line) 68%, transparent); border-radius: 50%; background: color-mix(in srgb, var(--vault-surface) 62%, transparent); color: var(--vault-ink); box-shadow: 0 6px 18px color-mix(in srgb, var(--vault-ink) 10%, transparent); opacity: 0; pointer-events: none; transform: translateY(-50%) scale(0.96); backdrop-filter: blur(10px); transition: opacity 180ms ease, border-color 140ms ease, background-color 140ms ease, transform 180ms ease; }
 .vault-preview-nav.is-previous { left: 0.85rem; }
@@ -3534,5 +3551,59 @@ onBeforeUnmount(() => {
   .vault-file-grid.is-tile-view .vault-file-item,
   .vault-file-grid.is-tile-view .vault-file-item:nth-child(odd),
   .vault-file-grid.is-tile-view .vault-file-item:nth-child(even) { min-height: 10rem; }
+}
+/* Image area takes priority. Fullscreen chrome is an overlay, never a grid row. */
+.vault-preview.is-image-viewer { width: 100%; height: calc(100dvh - 2rem); }
+.vault-preview.is-image-viewer header { gap: 0.5rem; padding: 0.4rem 0.65rem; }
+.vault-preview.is-image-viewer .vault-eyebrow { display: none; }
+.vault-preview.is-image-viewer h2 { max-width: 100%; font-size: 0.85rem; }
+.vault-preview.is-image-viewer footer { min-height: 0; padding: 0.3rem 0.6rem; }
+.vault-preview.is-image-viewer.is-fullscreen {
+  position: fixed; inset: 0; z-index: 90; width: 100vw; height: 100dvh;
+  max-width: none; max-height: none; grid-template-rows: minmax(0, 1fr);
+  border: 0; border-radius: 0; background: #111413; animation: none;
+}
+.vault-preview.is-image-viewer.is-fullscreen .vault-preview-body { grid-row: 1; width: 100%; height: 100%; background: #111413; }
+.vault-preview.is-fullscreen > header {
+  --vault-line: rgba(255,255,255,0.18); --vault-ink: #f2f5ed; --vault-muted: rgba(255,255,255,0.8);
+  position: absolute; z-index: 4; top: calc(max(0rem, env(safe-area-inset-top)) + 3.25rem);
+  left: auto; right: max(0.25rem, env(safe-area-inset-right)); width: 16rem;
+  max-width: calc(100% - max(0.25rem, env(safe-area-inset-left)) - max(0.25rem, env(safe-area-inset-right)));
+  max-height: calc(100% - max(0rem, env(safe-area-inset-top)) - 3.75rem); overflow: auto;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  border: 1px solid var(--vault-line); border-radius: 0.65rem; background: rgba(18,22,21,0.46);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12); backdrop-filter: blur(10px);
+}
+.vault-preview.is-fullscreen .vault-preview-heading { grid-column: 1; grid-row: 1; }
+.vault-preview.is-fullscreen .vault-preview-actions { grid-column: 2; grid-row: 1; }
+.vault-preview.is-fullscreen .vault-preview-toolbar {
+  grid-column: 1 / -1; grid-row: 2; order: 0; width: 100%; flex-wrap: wrap; overflow: visible;
+  border: 0; padding: 0; gap: 0.25rem;
+}
+.vault-preview.is-fullscreen .vault-preview-toolbar i { display: none; }
+.vault-preview.is-fullscreen > header button { width: 2.75rem; height: 2.75rem; }
+.vault-preview.is-fullscreen > header button:hover { background: rgba(255,255,255,0.12); color: white; border-color: rgba(255,255,255,0.3); }
+.vault-preview.is-fullscreen > footer {
+  position: absolute; z-index: 3; bottom: max(0.25rem, env(safe-area-inset-bottom));
+  left: 0.5rem; right: 0.5rem; border: 0; border-radius: 0.5rem; background: var(--vault-surface);
+}
+.vault-preview-dock {
+  position: absolute; z-index: 5; top: max(0rem, env(safe-area-inset-top));
+  right: max(0.25rem, env(safe-area-inset-right)); display: flex;
+}
+.vault-preview-dock button {
+  min-width: 44px; min-height: 44px; display: grid; place-items: center; padding: 0.15rem 0.65rem;
+  border: 1px solid rgba(255,255,255,0.25); border-radius: 0 0 0.6rem 0.6rem;
+  background: rgba(18,22,21,0.72); color: rgba(255,255,255,0.8); font-size: 0.7rem;
+}
+.vault-preview-dock svg { width: 1rem; height: 1rem; }
+.vault-preview-dock button:focus-visible { outline: 2px solid #7dc4bc; outline-offset: 2px; }
+.vault-preview.controls-hidden > header, .vault-preview.controls-hidden > footer, .vault-preview.controls-hidden .vault-preview-nav {
+  opacity: 0; visibility: hidden; pointer-events: none;
+}
+@media (max-width: 900px) {
+  .vault-preview.is-image-viewer { height: 100dvh; }
+  .vault-preview.is-image-viewer .vault-preview-heading { flex: 1 1 calc(100% - 7rem); }
+  .vault-preview.is-image-viewer .vault-preview-toolbar { order: 3; width: 100%; }
 }
 </style>

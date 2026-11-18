@@ -6,23 +6,35 @@ The bundled Garage configuration is a single node with no storage redundancy. Us
 
 ## Requirements
 
-- Linux with Docker Engine and Docker Compose v2.24 or later; your account must be allowed to use Docker.
+- Debian 12 or 13 with a fresh Docker setup for the Debian bootstrap, or Linux with Docker Engine and Docker Compose v2.24 or later for the standard installer.
 - Enough free disk space for the database, original files and backups. The default maximum upload is 250 MB per file.
 - An interactive terminal for the first administrator's hidden password prompt. The install script does not accept a password on the command line.
 - `age` on the Linux host for encrypted recovery archives; install it from your distribution before running the backup commands.
 
 ## Quick install
 
-Clone the repository, then run the installer:
+On a fresh Debian 12/13 server:
+
+```sh
+sudo apt-get update && sudo apt-get install -y git
+git clone https://github.com/Alenwan/personal-archive.git
+sudo sh personal-archive/release/selfhost/debian-install.sh
+```
+
+This uses [Docker's official Debian package repository](https://docs.docker.com/engine/install/debian/) and installs `age` for backups. It does not remove existing container packages or change the firewall. Run the command in an interactive SSH or local terminal; the administrator password is prompted without echoing it. Rerunning it preserves the existing Personal Archive `.env`, volumes and accounts.
+
+If Docker Engine and Compose are already available, clone the repository, then run the standard installer:
 
 ```sh
 git clone https://github.com/Alenwan/personal-archive.git
 sh personal-archive/release/selfhost/install.sh
 ```
 
+If the Debian bootstrap was run with `sudo`, use `sudo` for later `accounts.sh`, `backup.sh`, `verify-backup.sh` and `restore.sh` commands on that host. Root owns the private `.env`; do not change its permissions to make commands run as another user.
+
 The installer generates a private `release/selfhost/.env` once, builds the app, starts PostgreSQL and Garage, creates the two buckets, runs migrations, and asks for an administrator email, display name and password. It then checks `/readyz`. Re-running the command keeps the existing configuration, volumes and accounts; it does not rotate keys or reset passwords. If installation stops partway through, fix the reported cause and run it again.
 
-On the Linux host, open `http://127.0.0.1:8080` (or your configured `APP_PORT`). By default the application port is bound to **loopback only**. To use it from another computer, set up your own HTTPS reverse proxy or an SSH tunnel; keep the database and Garage ports private. Browser encryption outside localhost needs a secure HTTPS context. This installer does not configure a public HTTPS endpoint.
+On the Linux host, open `http://127.0.0.1:8080` (or your configured `APP_PORT`). By default the application port is bound to **loopback only**. From a desktop computer, a quick private access path is `ssh -L 8080:127.0.0.1:8080 user@your-server`, then open `http://127.0.0.1:8080` on that desktop. For a normal address on other devices, set up your own HTTPS reverse proxy; keep the database and Garage ports private. Browser encryption outside localhost needs a secure HTTPS context. This installer does not configure a public HTTPS endpoint.
 
 After signing in, upload and download a replaceable test file, save a note and a chapter, then restart the app with `docker compose -f compose.yaml -f compose.local.yaml restart app` from `release/selfhost` and verify the data is still there. Vault and encrypted writing use separate passwords that you must preserve.
 

@@ -24,8 +24,8 @@ async function submit() {
 </script>
 
 <template>
-  <main class="grid min-h-screen bg-ink-50 lg:grid-cols-[1.05fr_0.95fr]">
-    <section class="flex min-h-screen flex-col justify-between bg-ink-900 px-8 py-8 text-white lg:px-14">
+  <main class="login-page grid min-h-screen bg-ink-50 lg:grid-cols-[1.05fr_0.95fr]" :class="{ 'personal-login': template.personalArchive }">
+    <section class="login-brand flex min-h-screen flex-col justify-between bg-ink-900 px-8 py-8 text-white lg:px-14">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
           <div v-if="template.personalArchive" class="personal-login-brand-mark grid h-14 w-14 place-items-center">
@@ -34,16 +34,16 @@ async function submit() {
           <div v-else class="grid h-11 w-11 place-items-center rounded-md bg-accent-300 font-black text-ink-900">{{ template.productShortName }}</div>
           <div>
             <p class="font-semibold">{{ template.productName }}</p>
-            <p class="text-xs text-ink-300">{{ template.productSubtitle }}</p>
+            <p class="login-subtitle text-xs text-ink-300">{{ template.productSubtitle }}</p>
           </div>
         </div>
-        <button class="btn-secondary border-white/20 bg-white/10 px-3 text-white hover:bg-white/15" @click="toggleLocale">
+        <button class="login-language btn-secondary border-white/20 bg-white/10 px-3 text-white hover:bg-white/15" @click="toggleLocale">
           <Languages class="h-4 w-4" />
           {{ t("language") }}
         </button>
       </div>
 
-      <div class="max-w-2xl py-14">
+      <div class="login-intro max-w-2xl py-14">
         <p class="mb-4 text-sm font-semibold uppercase tracking-wide text-accent-200">Private workspace</p>
         <h1 class="max-w-3xl text-4xl font-semibold leading-tight md:text-6xl">
           {{ template.personalArchive ? "Personal records and reading, kept in one calm private space." : "Service records, customers, documents, and operations in one reliable workspace." }}
@@ -55,7 +55,7 @@ async function submit() {
         </p>
       </div>
 
-      <div class="grid gap-4 border-t border-white/10 pt-6 text-sm text-ink-200 md:grid-cols-3">
+      <div class="login-features grid gap-4 border-t border-white/10 pt-6 text-sm text-ink-200 md:grid-cols-3">
         <div>
           <p class="text-2xl font-semibold text-white">Private</p>
           <p>Assigned account access</p>
@@ -71,8 +71,8 @@ async function submit() {
       </div>
     </section>
 
-    <section class="flex min-h-screen items-center justify-center px-5 py-10">
-      <form class="panel w-full max-w-md p-6" @submit.prevent="submit">
+    <section class="login-form-section flex min-h-screen items-center justify-center px-5 py-10">
+      <form class="login-form panel w-full max-w-md p-6" @submit.prevent="submit">
         <div class="mb-6 flex items-center gap-3">
           <div class="grid h-10 w-10 place-items-center rounded-md bg-accent-100 text-accent-800">
             <LockKeyhole class="h-5 w-5" />
@@ -113,5 +113,17 @@ async function submit() {
 <style scoped>
 .personal-login-brand-mark {
   background: transparent;
+}
+/* Keep the administrator form visible in the first narrow viewport. */
+@media (max-width: 1023px) {
+  .personal-login { min-height: 100svh; grid-template-rows: auto 1fr; }
+  .personal-login .login-brand { min-height: 0; padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left)); }
+  .personal-login .login-intro, .personal-login .login-features, .personal-login .login-subtitle { display: none; }
+  .personal-login .personal-login-brand-mark, .personal-login .personal-login-brand-mark :deep(img) { width: 44px; height: 44px; }
+  .personal-login .login-language { min-height: 44px; flex-shrink: 0; }
+  .personal-login .login-form-section { min-height: 0; align-items: flex-start; padding: 20px max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .personal-login .login-form { padding: 20px; }
+  .personal-login .login-form input { font-size: 16px; min-height: 48px; }
+  .personal-login .login-form button[type="submit"], .personal-login .login-form > button { min-height: 48px; }
 }
 </style>
